@@ -1,5 +1,7 @@
 # Discwatch
 
+Source: https://github.com/mbrewski/discwatch (private).
+
 Local 4K / Blu-ray price tracker. It pulls recent discs from [blu-ray.com](https://www.blu-ray.com), lets you track catalog titles or movies with no disc page yet, and checks where they are listed and for how much.
 
 **Live:** https://discwatch.mattbrewer.me (public, no Cloudflare Access)  
