@@ -1,13 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Tracked · Discwatch{% endblock %}
 {% block body %}
-<div class="row">
-  <form method="post" action="{{ url_for('refresh_prices') }}">
-    <button type="submit">Refresh prices</button>
-  </form>
-  <p class="muted">{% if last %}Last price check {{ last[:19].replace('T',' ') }} UTC{% else %}No price check yet{% endif %}
-    · Prices from blu-ray.com (Amazon/list) plus GRUV, Valoria Video, Vinegar Syndrome, Orbit DVD, DiabolikDVD, and Walmart.</p>
-</div>
+<p class="muted">Shop prices refresh about every 12 hours{% if last %} · last check {{ last[:19].replace('T',' ') }} UTC{% endif %}.
+  New-release list also pulls every 12 hours. Sources: blu-ray.com (Amazon/list), GRUV, Valoria Video, Vinegar Syndrome, Orbit DVD, DiabolikDVD, Walmart.</p>
 {% if not rows %}
   <p>Nothing tracked yet. Use <a href="{{ url_for('find') }}">Find title</a> for any catalog disc, or pick from <a href="{{ url_for('inbox') }}">New releases</a>.</p>
 {% else %}
@@ -37,11 +32,10 @@
       {% endfor %}
     </td>
     <td>
-      <form method="post" action="{{ url_for('track', bluray_id=r.bluray_id) }}">
+      <form class="target-form" method="post" action="{{ url_for('track', bluray_id=r.bluray_id) }}">
         <input type="hidden" name="tracked" value="1">
         <input type="hidden" name="next" value="{{ url_for('tracked') }}">
-        <input name="target" value="{{ '%.2f'|format(r.target_cents/100) if r.target_cents else '' }}" size="6" placeholder="$">
-        <button class="ghost" type="submit">Save</button>
+        <input name="target" value="{{ '%.2f'|format(r.target_cents/100) if r.target_cents else '' }}" size="6" placeholder="$" inputmode="decimal">
       </form>
     </td>
     <td>
@@ -55,4 +49,36 @@
   {% endfor %}
 </table>
 {% endif %}
+<script>
+(function () {
+  document.querySelectorAll("form.target-form").forEach(function (form) {
+    var input = form.querySelector("input[name=target]");
+    if (!input) return;
+    input.dataset.saved = input.value.trim();
+    function save() {
+      var v = input.value.trim();
+      if (v === input.dataset.saved) return;
+      fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        credentials: "same-origin",
+      }).then(function (res) {
+        if (res.ok) {
+          input.dataset.saved = v;
+          input.style.outline = "1px solid var(--good)";
+          setTimeout(function () { input.style.outline = ""; }, 800);
+        }
+      });
+    }
+    input.addEventListener("blur", save);
+    input.addEventListener("change", save);
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      save();
+    });
+    window.addEventListener("pagehide", save);
+  });
+})();
+</script>
 {% endblock %}

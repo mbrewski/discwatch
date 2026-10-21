@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Sign up · Discwatch{% endblock %}
+{% block body %}
+<h2>Sign up</h2>
+<p class="muted">Pick a username and password. An admin has to approve you before you can log in.</p>
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+{% if msg %}<p class="muted">{{ msg }}</p>{% endif %}
+{% if not msg %}
+<form method="post" style="max-width:360px;display:flex;flex-direction:column;gap:10px">
+  <input name="username" placeholder="Username" autocomplete="username" required>
+  <input name="password" type="password" placeholder="Password (8+ characters)" autocomplete="new-password" required>
+  <button type="submit">Request account</button>
+</form>
+{% endif %}
+<p><a href="{{ url_for('login') }}">Back to log in</a></p>
+{% endblock %}

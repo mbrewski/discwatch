@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Users · Discwatch{% endblock %}
+{% block body %}
+<h2>Users</h2>
+<p class="muted">Each person has their own tracking list. Catalog and prices are shared. Sign-ups wait here until you approve or deny them.</p>
+<h3>Prices</h3>
+<p class="muted">Automatic check every 12 hours{% if last_prices %} · last {{ last_prices[:19].replace('T',' ') }} UTC{% endif %}.</p>
+<form method="post" action="{{ url_for('refresh_prices') }}" class="row">
+  <button type="submit">Refresh prices now</button>
+</form>
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+{% if msg %}<p class="muted">{{ msg }}</p>{% endif %}
+
+<h3>Provisional</h3>
+{% if pending %}
+<table>
+  <tr><th>Username</th><th>Requested</th><th></th></tr>
+  {% for r in pending %}
+  <tr>
+    <td>{{ r.username }}</td>
+    <td class="muted">{{ r.created_at[:19].replace('T',' ') }}</td>
+    <td>
+      <form method="post" action="{{ url_for('users_approve', user_id=r.id) }}" class="inline">
+        <button type="submit">Approve</button>
+      </form>
+      <form method="post" action="{{ url_for('users_deny', user_id=r.id) }}" class="inline"
+            onsubmit="return confirm('Deny {{ r.username }}?')">
+        <button class="ghost" type="submit">Deny</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No pending sign-ups.</p>
+{% endif %}
+
+<h3>Accounts</h3>
+<form method="post" action="{{ url_for('users_create') }}" class="row">
+  <input name="username" placeholder="Username" required>
+  <input name="password" type="password" placeholder="Password (8+)" required>
+  <label class="muted"><input type="checkbox" name="is_admin" value="1"> Admin</label>
+  <button type="submit">Add user</button>
+</form>
+<table>
+  <tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr>
+  {% for r in active %}
+  <tr>
+    <td>{{ r.username }}</td>
+    <td>{% if r.is_admin %}admin{% else %}user{% endif %}</td>
+    <td class="muted">{{ r.created_at[:19].replace('T',' ') }}</td>
+    <td>
+      {% if r.id != user.id %}
+      <form method="post" action="{{ url_for('users_delete', user_id=r.id) }}" class="inline"
+            onsubmit="return confirm('Remove {{ r.username }} and their list?')">
+        <button class="ghost" type="submit">Remove</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

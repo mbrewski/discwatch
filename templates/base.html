@@ -6,28 +6,53 @@
   <title>{% block title %}Discwatch{% endblock %}</title>
   <style>
     :root {
-      --bg: #12141a; --panel: #1c2029; --ink: #e8e6e1; --muted: #9aa3b2;
-      --line: #2c3340; --accent: #d4a017; --4k: #6cb6ff; --bd: #c9a66b;
-      --good: #5dcaa5; --warn: #e0a25a;
+      --bg: #0a0b10; --panel: #14161f; --ink: #e8f4ff; --muted: #8aa0b8;
+      --line: #2a3148; --accent: #3df0ff; --hot: #ff2bd6; --4k: #6cb6ff; --bd: #c9a66b;
+      --good: #5dcaa5; --warn: #ffb347;
     }
     * { box-sizing: border-box; }
     body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    header { display: flex; gap: 18px; align-items: center; padding: 14px 22px;
-      border-bottom: 1px solid var(--line); background: #161922; position: sticky; top: 0; }
-    header h1 { font-size: 18px; margin: 0; letter-spacing: .04em; }
-    nav { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-    nav a { color: var(--muted); }
-    nav a.active { color: var(--ink); }
-    header form { margin-left: auto; display: flex; gap: 8px; }
+    header {
+      position: sticky; top: 0; z-index: 20;
+      padding: 12px 22px 10px;
+      background: linear-gradient(180deg, #10131c 0%, #0c0e16 100%);
+      border-bottom: 1px solid var(--line);
+      box-shadow: 0 0 24px rgba(61, 240, 255, 0.08);
+    }
+    .brand-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .brand { display: flex; align-items: center; gap: 12px; color: inherit; }
+    .brand:hover { text-decoration: none; }
+    .brand img { width: 52px; height: 52px; border-radius: 10px; object-fit: cover;
+      box-shadow: 0 0 16px rgba(255, 43, 214, 0.35), 0 0 12px rgba(61, 240, 255, 0.25); }
+    .wordmark {
+      margin: 0; font-size: 26px; font-weight: 800; letter-spacing: 0.16em;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, #3df0ff, #ff2bd6);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .find-form { display: flex; gap: 8px; flex: 1; min-width: 220px; }
+    .find-form input { flex: 1; }
+    .account { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+    nav {
+      display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+      margin-top: 10px; padding-top: 8px;
+      border-top: 1px solid rgba(61, 240, 255, 0.15);
+    }
+    nav a { color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; }
+    nav a.active { color: var(--accent); text-shadow: 0 0 8px rgba(61, 240, 255, 0.5); }
     .err { background: #3a1f1f; color: #f0b4b4; padding: 10px 12px; border-radius: 8px; margin-bottom: 14px; }
     main { padding: 20px 22px 48px; max-width: 1280px; }
     .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 16px; }
-    input, select, button { font: inherit; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line);
+    input, select, button, .btn { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
       background: #10131a; color: var(--ink); }
-    button, .btn { background: var(--accent); color: #1a1404; border: 0; font-weight: 600; cursor: pointer; }
-    button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    button, .btn { background: var(--accent); color: #041016; border: 1px solid var(--accent); font-weight: 600; cursor: pointer; }
+    button.ghost, a.btn.ghost {
+      background: transparent; color: var(--ink); border: 1px solid var(--line);
+    }
+    a.btn { display: inline-block; text-align: center; text-decoration: none; line-height: 1.45; }
+    a.btn:hover { text-decoration: none; filter: brightness(1.08); }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
     .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
     .card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; background: #0b0d12; }
@@ -48,16 +73,34 @@
 </head>
 <body>
 <header>
-  <h1>Discwatch</h1>
+  <div class="brand-row">
+    <a class="brand" href="{{ url_for('tracked') if user else url_for('login') }}">
+      <img src="{{ url_for('static', filename='logo.jpg') }}" alt="Discwatch">
+      <span class="wordmark">Discwatch</span>
+    </a>
+    {% if user %}
+    <form class="find-form" method="get" action="{{ url_for('find') }}">
+      <input name="q" value="{{ request.args.get('q','') }}" placeholder="Search catalog or paste blu-ray.com URL">
+      <button type="submit">Find</button>
+    </form>
+    <div class="account">
+      <span class="muted">{{ user.username }}</span>
+      <form method="post" action="{{ url_for('logout') }}">
+        <button class="ghost" type="submit">Log out</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% if user %}
   <nav>
     <a href="{{ url_for('tracked') }}" class="{{ 'active' if request.endpoint=='tracked' }}">Tracked</a>
     <a href="{{ url_for('inbox') }}" class="{{ 'active' if request.endpoint=='inbox' }}">New releases</a>
     <a href="{{ url_for('find') }}" class="{{ 'active' if request.endpoint=='find' }}">Find title</a>
+    {% if user.is_admin %}
+    <a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint in ('users','users_create') }}">Users</a>
+    {% endif %}
   </nav>
-  <form method="get" action="{{ url_for('find') }}">
-    <input name="q" value="{{ request.args.get('q','') }}" placeholder="Search catalog or paste blu-ray.com URL" size="36">
-    <button type="submit">Find</button>
-  </form>
+  {% endif %}
 </header>
 <main>
   {% block body %}{% endblock %}

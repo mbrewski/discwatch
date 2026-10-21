@@ -1,0 +1,11 @@
+[Unit]
+Description=Discwatch refresh shop prices for watched titles
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/develop/discwatch
+ExecStart=%h/develop/discwatch/venv/bin/python %h/develop/discwatch/refresh_prices.py
+Environment=PYTHONUNBUFFERED=1
+Nice=10

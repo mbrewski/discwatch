@@ -21,7 +21,7 @@
 </div>
 <p class="muted">{{ rows|length }} titles
   {% if last %} · last pull {{ last[:19].replace('T',' ') }} UTC{% endif %}
-  · RSS new releases + 4K hub + newest UHD search. Track a title to load Amazon/list prices.</p>
+  · RSS new releases + 4K hub + newest UHD search. Catalog searches stay off this list.</p>
 <div class="grid">
   {% for r in rows %}
   <article class="card">
@@ -35,7 +35,7 @@
       <div class="muted">{{ r.studio or '' }}{% if r.release_date %} · {{ r.release_date }}{% endif %}</div>
       <form method="post" action="{{ url_for('track', bluray_id=r.bluray_id) }}">
         <input type="hidden" name="next" value="{{ request.full_path }}">
-        {% if r.tracked %}
+        {% if r.watching %}
           <input type="hidden" name="tracked" value="0">
           <button class="ghost" type="submit">Stop tracking</button>
         {% else %}
@@ -43,6 +43,12 @@
           <button type="submit">Track</button>
         {% endif %}
       </form>
+      {% if r.source in ('manual', 'manual-name', 'search') %}
+      <form method="post" action="{{ url_for('inbox_hide', bluray_id=r.bluray_id) }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button class="ghost" type="submit">Remove from list</button>
+      </form>
+      {% endif %}
     </div>
   </article>
   {% else %}

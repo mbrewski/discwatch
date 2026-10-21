@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Discwatch shop prices every 12 hours
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=12h
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target
