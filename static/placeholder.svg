@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300">
+  <rect width="200" height="300" fill="#1c2029"/>
+  <rect x="18" y="18" width="164" height="264" fill="none" stroke="#3a4252" stroke-width="2"/>
+  <text x="100" y="158" text-anchor="middle" fill="#9aa3b2" font-size="14" font-family="system-ui,sans-serif">no cover</text>
+</svg>

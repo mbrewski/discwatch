@@ -1,0 +1,18 @@
+[Unit]
+Description=Discwatch 4K/Blu-ray price tracker (http://0.0.0.0:8790/)
+Documentation=file:///home/mbrewski/develop/discwatch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/develop/discwatch
+ExecStart=%h/develop/discwatch/venv/bin/python %h/develop/discwatch/app.py
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+KillMode=mixed
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

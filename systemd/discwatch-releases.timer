@@ -1,0 +1,11 @@
+[Unit]
+Description=Pull blu-ray.com release list every 12 hours
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=12h
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

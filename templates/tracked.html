@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Tracked · Discwatch{% endblock %}
+{% block body %}
+<div class="row">
+  <form method="post" action="{{ url_for('refresh_prices') }}">
+    <button type="submit">Refresh prices</button>
+  </form>
+  <p class="muted">{% if last %}Last price check {{ last[:19].replace('T',' ') }} UTC{% else %}No price check yet{% endif %}
+    · Prices from blu-ray.com (Amazon/list) plus GRUV, Valoria Video, Vinegar Syndrome, Orbit DVD, DiabolikDVD, and Walmart.</p>
+</div>
+{% if not rows %}
+  <p>Nothing tracked yet. Use <a href="{{ url_for('find') }}">Find title</a> for any catalog disc, or pick from <a href="{{ url_for('inbox') }}">New releases</a>.</p>
+{% else %}
+<table>
+  <tr>
+    <th></th><th>Title</th><th>Format</th><th>Release</th><th>Best</th><th>List</th><th>Where</th><th>Target</th><th></th>
+  </tr>
+  {% for r in rows %}
+  {% set offs = offers(r.last_offers) %}
+  <tr>
+    <td><a href="{{ url_for('title_detail', bluray_id=r.bluray_id) }}"><img class="cover-sm" src="{{ r.cover or url_for('static', filename='placeholder.svg') }}" alt=""></a></td>
+    <td>
+      <a href="{{ url_for('title_detail', bluray_id=r.bluray_id) }}"><strong>{{ r.title }}</strong></a><br>
+      <span class="muted">{{ r.studio or '' }}</span>
+    </td>
+    <td><span class="pill {{ 'k4' if r.fmt=='4k' else 'bd' }}">{{ '4K' if r.fmt=='4k' else 'Blu-ray' }}</span></td>
+    <td>{{ r.release_date or '—' }}</td>
+    <td class="price {% if r.target_cents and r.best_price_cents and r.best_price_cents <= r.target_cents %}hit{% endif %}">{{ money(r.best_price_cents) }}</td>
+    <td>{{ money(r.list_price_cents) }}</td>
+    <td>
+      {% for o in offs %}
+        {% if o.retailer != 'List / MSRP' %}
+          <div><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.retailer }}</a> {{ money(o.price_cents) }}</div>
+        {% endif %}
+      {% else %}
+        <span class="muted">Refresh to load</span>
+      {% endfor %}
+    </td>
+    <td>
+      <form method="post" action="{{ url_for('track', bluray_id=r.bluray_id) }}">
+        <input type="hidden" name="tracked" value="1">
+        <input type="hidden" name="next" value="{{ url_for('tracked') }}">
+        <input name="target" value="{{ '%.2f'|format(r.target_cents/100) if r.target_cents else '' }}" size="6" placeholder="$">
+        <button class="ghost" type="submit">Save</button>
+      </form>
+    </td>
+    <td>
+      <form method="post" action="{{ url_for('track', bluray_id=r.bluray_id) }}">
+        <input type="hidden" name="tracked" value="0">
+        <input type="hidden" name="next" value="{{ url_for('tracked') }}">
+        <button class="ghost" type="submit">Drop</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

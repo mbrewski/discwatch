@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}New releases · Discwatch{% endblock %}
+{% block body %}
+<div class="row">
+  <form method="get">
+    <select name="fmt" onchange="this.form.submit()">
+      <option value="all" {{ 'selected' if fmt=='all' }}>All formats</option>
+      <option value="4k" {{ 'selected' if fmt=='4k' }}>4K UHD</option>
+      <option value="bluray" {{ 'selected' if fmt=='bluray' }}>Blu-ray</option>
+    </select>
+    <input name="q" value="{{ q }}" placeholder="Search title or studio">
+    <button class="ghost" type="submit">Filter</button>
+  </form>
+  <form method="post" action="{{ url_for('refresh_releases') }}">
+    <button type="submit">Pull latest from blu-ray.com</button>
+  </form>
+  <form method="post" action="{{ url_for('add') }}">
+    <input name="url" placeholder="Paste blu-ray.com title URL" size="42">
+    <button type="submit">Track URL</button>
+  </form>
+</div>
+<p class="muted">{{ rows|length }} titles
+  {% if last %} · last pull {{ last[:19].replace('T',' ') }} UTC{% endif %}
+  · RSS new releases + 4K hub + newest UHD search. Track a title to load Amazon/list prices.</p>
+<div class="grid">
+  {% for r in rows %}
+  <article class="card">
+    <a href="{{ r.url }}" target="_blank" rel="noopener"><img src="{{ r.cover }}" alt=""></a>
+    <div class="body">
+      <div>
+        <span class="pill {{ 'k4' if r.fmt=='4k' else 'bd' }}">{{ '4K' if r.fmt=='4k' else 'Blu-ray' }}</span>
+        {% if r.year %}<span class="muted">{{ r.year }}</span>{% endif %}
+      </div>
+      <h3>{{ r.title }}</h3>
+      <div class="muted">{{ r.studio or '' }}{% if r.release_date %} · {{ r.release_date }}{% endif %}</div>
+      <form method="post" action="{{ url_for('track', bluray_id=r.bluray_id) }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        {% if r.tracked %}
+          <input type="hidden" name="tracked" value="0">
+          <button class="ghost" type="submit">Stop tracking</button>
+        {% else %}
+          <input type="hidden" name="tracked" value="1">
+          <button type="submit">Track</button>
+        {% endif %}
+      </form>
+    </div>
+  </article>
+  {% else %}
+  <p>No titles yet. Pull latest from blu-ray.com.</p>
+  {% endfor %}
+</div>
+{% endblock %}

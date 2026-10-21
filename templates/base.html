@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Discwatch{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #12141a; --panel: #1c2029; --ink: #e8e6e1; --muted: #9aa3b2;
+      --line: #2c3340; --accent: #d4a017; --4k: #6cb6ff; --bd: #c9a66b;
+      --good: #5dcaa5; --warn: #e0a25a;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header { display: flex; gap: 18px; align-items: center; padding: 14px 22px;
+      border-bottom: 1px solid var(--line); background: #161922; position: sticky; top: 0; }
+    header h1 { font-size: 18px; margin: 0; letter-spacing: .04em; }
+    nav { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+    nav a { color: var(--muted); }
+    nav a.active { color: var(--ink); }
+    header form { margin-left: auto; display: flex; gap: 8px; }
+    .err { background: #3a1f1f; color: #f0b4b4; padding: 10px 12px; border-radius: 8px; margin-bottom: 14px; }
+    main { padding: 20px 22px 48px; max-width: 1280px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 16px; }
+    input, select, button { font: inherit; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line);
+      background: #10131a; color: var(--ink); }
+    button, .btn { background: var(--accent); color: #1a1404; border: 0; font-weight: 600; cursor: pointer; }
+    button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+    .card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; background: #0b0d12; }
+    .card .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .card h3 { margin: 0; font-size: 14px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: #2a3140; color: var(--muted); }
+    .pill.k4 { background: #1d334d; color: var(--4k); }
+    .pill.bd { background: #3a2e1a; color: var(--bd); }
+    .price { font-size: 20px; font-weight: 700; color: var(--good); }
+    .price.hit { color: var(--warn); }
+    table { width: 100%; border-collapse: collapse; background: var(--panel); }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-size: 12px; }
+    .cover-sm { width: 48px; height: 72px; object-fit: cover; border-radius: 4px; }
+    form.inline { display: inline; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Discwatch</h1>
+  <nav>
+    <a href="{{ url_for('tracked') }}" class="{{ 'active' if request.endpoint=='tracked' }}">Tracked</a>
+    <a href="{{ url_for('inbox') }}" class="{{ 'active' if request.endpoint=='inbox' }}">New releases</a>
+    <a href="{{ url_for('find') }}" class="{{ 'active' if request.endpoint=='find' }}">Find title</a>
+  </nav>
+  <form method="get" action="{{ url_for('find') }}">
+    <input name="q" value="{{ request.args.get('q','') }}" placeholder="Search catalog or paste blu-ray.com URL" size="36">
+    <button type="submit">Find</button>
+  </form>
+</header>
+<main>
+  {% block body %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,11 @@
+[Unit]
+Description=Discwatch pull blu-ray.com new-release list
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/develop/discwatch
+ExecStart=%h/develop/discwatch/venv/bin/python %h/develop/discwatch/refresh_releases.py
+Environment=PYTHONUNBUFFERED=1
+Nice=10

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ row.title }} · Discwatch{% endblock %}
+{% block body %}
+<div class="row" style="align-items:start">
+  <img src="{{ row.cover or url_for('static', filename='placeholder.svg') }}" alt="" style="width:180px;border-radius:8px">
+  <div>
+    <span class="pill {{ 'k4' if row.fmt=='4k' else 'bd' }}">{{ '4K' if row.fmt=='4k' else 'Blu-ray' }}</span>
+    <h2 style="margin:8px 0">{{ row.title }}</h2>
+    <p class="muted">{{ row.studio or '' }} {% if row.year %}· {{ row.year }}{% endif %}
+      {% if row.release_date %}· street {{ row.release_date }}{% endif %}</p>
+    <p class="price">{{ money(row.best_price_cents) }}
+      <span class="muted">list {{ money(row.list_price_cents) }}</span></p>
+    <p>
+      {% if row.url and 'blu-ray.com' in row.url %}
+        <a href="{{ row.url }}" target="_blank" rel="noopener">blu-ray.com</a>
+      {% else %}
+        <span class="muted">No blu-ray.com page — tracked by name</span>
+      {% endif %}
+      {% if row.amazon_url %} · <a href="{{ row.amazon_url }}" target="_blank" rel="noopener">Amazon (via blu-ray.com)</a>{% endif %}
+    </p>
+    <h3>Where it's listed</h3>
+    {% for o in offers %}
+      <div>{{ o.retailer }} — <strong>{{ money(o.price_cents) }}</strong>
+        {% if o.url %} · <a href="{{ o.url }}" target="_blank" rel="noopener">open</a>{% endif %}
+        <span class="muted">{{ o.note or '' }}</span>
+      </div>
+    {% else %}
+      <p class="muted">No offers yet. Refresh prices from Tracked.</p>
+    {% endfor %}
+  </div>
+</div>
+<h3>Price history</h3>
+<table>
+  <tr><th>When</th><th>Retailer</th><th>Price</th></tr>
+  {% for h in hist %}
+  <tr><td>{{ h.seen_at[:19].replace('T',' ') }}</td><td>{{ h.retailer }}</td><td>{{ money(h.price_cents) }}</td></tr>
+  {% else %}
+  <tr><td colspan="3">No history yet</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

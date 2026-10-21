@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Find title · Discwatch{% endblock %}
+{% block body %}
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+<p class="muted">Search blu-ray.com, paste a title URL, or track by name if there is no disc page yet. Name-only titles still check GRUV, Valoria, Vinegar Syndrome, Orbit, Diabolik, and Walmart.</p>
+<form method="post" action="{{ url_for('add_name') }}" class="row">
+  <input name="title" value="{{ q }}" placeholder="Title (even if no Blu-ray yet)" size="32" required>
+  <input name="year" placeholder="Year" size="6">
+  <select name="fmt">
+    <option value="4k">Looking for 4K</option>
+    <option value="bluray">Looking for Blu-ray</option>
+  </select>
+  <button type="submit">Track by name</button>
+</form>
+{% if q and not error %}
+<p class="muted">{{ rows|length }} result{{ '' if rows|length==1 else 's' }} for “{{ q }}”</p>
+{% endif %}
+<div class="grid">
+  {% for r in rows %}
+  <article class="card">
+    <a href="{{ r.url }}" target="_blank" rel="noopener"><img src="{{ r.cover }}" alt=""></a>
+    <div class="body">
+      <div>
+        <span class="pill {{ 'k4' if r.fmt=='4k' else 'bd' }}">{{ '4K' if r.fmt=='4k' else 'Blu-ray' }}</span>
+        {% if r.year %}<span class="muted">{{ r.year }}</span>{% endif %}
+      </div>
+      <h3>{{ r.title }}</h3>
+      <form method="post" action="{{ url_for('add') }}">
+        <input type="hidden" name="url" value="{{ r.url }}">
+        <button type="submit">Track</button>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% if q and not rows and not error %}
+<p>No blu-ray.com hits. Use <strong>Track by name</strong> above if the movie has no disc page, or isn’t listed there yet.</p>
+{% endif %}
+{% if not q %}
+<p class="muted">Examples: <em>The Thing</em>, <em>Heat 4K</em>, or <code>https://www.blu-ray.com/movies/…</code></p>
+{% endif %}
+{% endblock %}
