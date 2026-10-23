@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 import time
@@ -31,6 +32,12 @@ STOP = {
 
 FORMAT_4K = re.compile(r"\b(4k|uhd|ultra\s*hd)\b", re.I)
 FORMAT_BD = re.compile(r"\bblu[\s-]*ray\b", re.I)
+
+# Backstop against a parse that goes badly wrong. Generous on purpose: premium box sets
+# do reach four figures, so this only catches clearly absurd values.
+MAX_PLAUSIBLE_CENTS = 1_000_000  # $10,000
+
+log = logging.getLogger("discwatch.retailers")
 
 
 def _session() -> requests.Session:
@@ -101,17 +108,24 @@ def _score(
 
 
 def _money_to_cents(v) -> int | None:
+    """Every caller supplies dollars: Shopify sends a decimal string, Walmart a float
+    plus string priceLines, the DDG parser a "$12.99". So never treat a bare number as
+    cents - that read an int 1200 as $12.00 while a float 1200.0 became $1200.00."""
     if v is None:
         return None
-    if isinstance(v, (int, float)):
-        if v > 1000 and isinstance(v, int):
-            return int(v)  # already cents
-        return int(round(float(v) * 100))
-    s = str(v).replace(",", "").replace("$", "").strip()
-    m = re.search(r"([0-9]+(?:\.[0-9]{1,2})?)", s)
-    if not m:
+    if isinstance(v, bool):
         return None
-    return int(round(float(m.group(1)) * 100))
+    if isinstance(v, (int, float)):
+        cents = int(round(float(v) * 100))
+    else:
+        s = str(v).replace(",", "").replace("$", "").strip()
+        m = re.search(r"([0-9]+(?:\.[0-9]{1,2})?)", s)
+        if not m:
+            return None
+        cents = int(round(float(m.group(1)) * 100))
+    if cents <= 0 or cents > MAX_PLAUSIBLE_CENTS:
+        return None
+    return cents
 
 
 def _best_shopify(
@@ -349,7 +363,8 @@ def lookup_all(
     for name, fn in STORES:
         try:
             hit = fn(session, title, fmt, year)
-        except Exception:
+        except Exception as e:
+            log.warning("store %s failed for %r: %s", name, title, e)
             hit = None
         if hit:
             offers.append(hit)

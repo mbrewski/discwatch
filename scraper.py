@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html as htmlmod
+import logging
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -31,6 +32,8 @@ TITLE_RE = re.compile(
     r"https://www\.blu-ray\.com/movies/([^/\"\s]+)/(\d+)/", re.I
 )
 PRICE_RE = re.compile(r"\$([0-9]+(?:\.[0-9]{2})?)")
+
+log = logging.getLogger("discwatch.scraper")
 
 
 def fetch(url: str, timeout: int = 30) -> str:
@@ -342,6 +345,7 @@ def gather_releases() -> list[dict]:
             out.extend(fn())
         except Exception as e:
             errors.append(f"{fn.__name__}: {e}")
+            log.warning("release source %s failed: %s", fn.__name__, e)
     if not out and errors:
         raise RuntimeError("; ".join(errors))
     return _dedupe(out)
@@ -431,6 +435,19 @@ def _norm_date(s: str | None) -> str | None:
 
 def is_bluray_title_url(url: str | None) -> bool:
     return bool(url and TITLE_RE.search(url))
+
+
+def canonical_title_url(url: str | None) -> str | None:
+    """Rebuild a blu-ray.com title URL from the slug and id inside `url`.
+
+    TITLE_RE only *searches*, so a hostile value like
+    http://127.0.0.1/?x=https://www.blu-ray.com/movies/a/1/ matches. Returning a URL
+    built from BASE means callers never fetch the host they were handed.
+    """
+    m = TITLE_RE.search(url or "")
+    if not m:
+        return None
+    return f"{BASE}/movies/{m.group(1)}/{m.group(2)}/"
 
 
 def prices_for_title(title: str, fmt: str = "4k", year: str | None = None) -> dict:

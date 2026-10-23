@@ -11,9 +11,11 @@
     <input name="q" value="{{ q }}" placeholder="Search title or studio">
     <button class="ghost" type="submit">Filter</button>
   </form>
+  {% if user.is_admin %}
   <form method="post" action="{{ url_for('refresh_releases') }}">
     <button type="submit">Pull latest from blu-ray.com</button>
   </form>
+  {% endif %}
   <form method="post" action="{{ url_for('add') }}">
     <input name="url" placeholder="Paste blu-ray.com title URL" size="42">
     <button type="submit">Track URL</button>
@@ -21,7 +23,10 @@
 </div>
 <p class="muted">{{ rows|length }} titles
   {% if last %} · last pull {{ last[:19].replace('T',' ') }} UTC{% endif %}
+  {%- if job and not job.finished %} · <strong>pull running</strong> since {{ job.started[:19].replace('T',' ') }} UTC{% endif %}
   · RSS new releases + 4K hub + newest UHD search. Catalog searches stay off this list.</p>
+{% if msg %}<p class="muted">{{ msg }}</p>{% endif %}
+{% if job and job.finished and job.error %}<p class="err">Last pull failed: {{ job.error }}</p>{% endif %}
 <div class="grid">
   {% for r in rows %}
   <article class="card">
@@ -52,7 +57,7 @@
     </div>
   </article>
   {% else %}
-  <p>No titles yet. Pull latest from blu-ray.com.</p>
+  <p>No titles yet.{% if user.is_admin %} Pull latest from blu-ray.com.{% else %} An admin pulls the list from blu-ray.com.{% endif %}</p>
   {% endfor %}
 </div>
 {% endblock %}

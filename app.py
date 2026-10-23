@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import secrets
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
 from pathlib import Path
 
@@ -27,6 +30,10 @@ from refresh_releases import pull_releases
 
 SECRET_FILE = Path(__file__).resolve().parent / "data" / "secret_key"
 USER_RE = re.compile(r"^[a-zA-Z0-9._-]{3,32}$")
+LOGIN_FAIL_WINDOW = 900
+LOGIN_FAIL_MAX = 8
+
+log = logging.getLogger("discwatch.app")
 
 
 def _secret_key() -> str:
@@ -45,9 +52,101 @@ app.config["PREFERRED_URL_SCHEME"] = "https"
 app.secret_key = _secret_key()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-# False so LAN http://127.0.0.1:8790 can keep a session; public traffic is HTTPS via the tunnel.
+# Deliberately False: LAN browsing over plain http://127.0.0.1:8790 has to keep a session.
+# The trade-off is real — any request that lands on an http:// origin sends the session
+# cookie in cleartext. Accepted because public traffic goes over HTTPS via the tunnel.
 app.config["SESSION_COOKIE_SECURE"] = False
-_lock = threading.Lock()
+
+# Hashing a throwaway password keeps the "no such user" branch of login as slow as a real
+# check, so response time does not leak which usernames exist.
+DUMMY_HASH = generate_password_hash("discwatch-no-such-user")
+
+# Bulk refreshes run on their own daemon thread; per-title refreshes queue on a small pool
+# so adding several titles at once cannot spawn an unbounded number of threads.
+_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
+_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="discwatch-title")
+_login_fails: dict[tuple, list[float]] = {}
+_login_fails_lock = threading.Lock()
+
+
+def _run_job(name: str, fn) -> bool:
+    """Start fn in the background. False if a job of that name is still running."""
+    with _jobs_lock:
+        cur = _jobs.get(name)
+        if cur and not cur["finished"]:
+            return False
+        _jobs[name] = {"started": db.now(), "finished": None, "error": None}
+
+    def runner():
+        err = None
+        try:
+            fn()
+        except Exception as e:
+            err = str(e)
+            log.warning("background job %s failed: %s", name, e)
+        with _jobs_lock:
+            _jobs[name].update(finished=db.now(), error=err)
+
+    threading.Thread(target=runner, name=f"discwatch-{name}", daemon=True).start()
+    return True
+
+
+def job_status(name: str) -> dict | None:
+    with _jobs_lock:
+        j = _jobs.get(name)
+        return dict(j) if j else None
+
+
+def _refresh_title_async(row) -> None:
+    """Queue a single-title price refresh; sqlite3.Row holds values, so the closed
+    connection it came from does not matter."""
+    if row is None:
+        return
+
+    def work():
+        try:
+            refresh_one(row)
+        except Exception as e:
+            log.warning("price refresh failed for %s: %s", row["bluray_id"], e)
+
+    _pool.submit(work)
+
+
+def safe_next(raw: str | None, fallback: str) -> str:
+    """Same-site paths only. '//host' and '/\\host' are protocol-relative and would
+    send the browser off-site."""
+    if not raw or not raw.startswith("/"):
+        return fallback
+    if raw.startswith("//") or raw.startswith("/\\"):
+        return fallback
+    return raw
+
+
+def _login_key(username: str) -> tuple:
+    return (request.remote_addr or "?", username)
+
+
+def _login_blocked(username: str) -> bool:
+    cutoff = time.time() - LOGIN_FAIL_WINDOW
+    with _login_fails_lock:
+        for k in list(_login_fails):
+            kept = [t for t in _login_fails[k] if t > cutoff]
+            if kept:
+                _login_fails[k] = kept
+            else:
+                del _login_fails[k]
+        return len(_login_fails.get(_login_key(username), [])) >= LOGIN_FAIL_MAX
+
+
+def _note_login_fail(username: str) -> None:
+    with _login_fails_lock:
+        _login_fails.setdefault(_login_key(username), []).append(time.time())
+
+
+def _clear_login_fails(username: str) -> None:
+    with _login_fails_lock:
+        _login_fails.pop(_login_key(username), None)
 
 
 def money(cents: int | None) -> str:
@@ -153,20 +252,29 @@ def login():
     con.close()
     if n == 0:
         return redirect(url_for("setup"))
-    return render_template("login.html", error=None, next=request.args.get("next") or "")
+    return render_template(
+        "login.html", error=None, next=safe_next(request.args.get("next"), "")
+    )
 
 
 @app.post("/login")
 def login_post():
     username = (request.form.get("username") or "").strip().lower()
     password = request.form.get("password") or ""
-    nxt = request.form.get("next") or url_for("tracked")
-    if not nxt.startswith("/"):
-        nxt = url_for("tracked")
+    nxt = safe_next(request.form.get("next"), url_for("tracked"))
+    if _login_blocked(username):
+        return render_template(
+            "login.html",
+            error="Too many failed attempts. Wait a few minutes and try again.",
+            next=nxt,
+        )
     con = db.connect()
     user = db.get_user_by_name(con, username)
     con.close()
+    if not user:
+        check_password_hash(DUMMY_HASH, password)
     if not user or not check_password_hash(user["password_hash"], password):
+        _note_login_fail(username)
         return render_template("login.html", error="Wrong username or password.", next=nxt)
     if user["status"] != "approved":
         return render_template(
@@ -174,6 +282,7 @@ def login_post():
             error="That account is waiting for admin approval.",
             next=nxt,
         )
+    _clear_login_fails(username)
     session.clear()
     session["user_id"] = user["id"]
     session.permanent = True
@@ -241,6 +350,7 @@ def users():
         pending=pending,
         active=active,
         last_prices=last_prices,
+        job=job_status("prices"),
         error=request.args.get("error"),
         msg=request.args.get("msg"),
     )
@@ -340,10 +450,12 @@ def inbox():
     fmt = request.args.get("fmt", "all")
     q = (request.args.get("q") or "").strip()
     con = db.connect()
-    sql = """SELECT t.*, CASE WHEN w.bluray_id IS NULL THEN 0 ELSE 1 END AS watching
+    sql = """SELECT t.*, 0 AS watching
              FROM titles t
-             LEFT JOIN watches w ON w.bluray_id=t.bluray_id AND w.user_id=?
-             WHERE t.inbox_hidden=0"""
+             WHERE t.inbox_hidden=0
+               AND NOT EXISTS (
+                   SELECT 1 FROM watches w WHERE w.bluray_id=t.bluray_id AND w.user_id=?
+               )"""
     args: list = [g.user["id"]]
     if fmt in ("4k", "bluray"):
         sql += " AND t.fmt=?"
@@ -355,7 +467,15 @@ def inbox():
     rows = con.execute(sql, args).fetchall()
     last = db.get_meta(con, "last_release_refresh")
     con.close()
-    return render_template("inbox.html", rows=rows, fmt=fmt, q=q, last=last)
+    return render_template(
+        "inbox.html",
+        rows=rows,
+        fmt=fmt,
+        q=q,
+        last=last,
+        msg=request.args.get("msg"),
+        job=job_status("releases"),
+    )
 
 
 @app.post("/inbox/hide/<bluray_id>")
@@ -364,8 +484,7 @@ def inbox_hide(bluray_id):
     db.hide_from_inbox(con, bluray_id)
     con.commit()
     con.close()
-    nxt = request.form.get("next") or url_for("inbox")
-    return redirect(nxt)
+    return redirect(safe_next(request.form.get("next"), url_for("inbox")))
 
 
 @app.post("/track/<bluray_id>")
@@ -384,14 +503,10 @@ def track(bluray_id):
     row = con.execute("SELECT * FROM titles WHERE bluray_id=?", (bluray_id,)).fetchone()
     con.close()
     if on and row and not was:
-        try:
-            refresh_one(row)
-        except Exception:
-            pass
+        _refresh_title_async(row)
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return ("", 204)
-    nxt = request.form.get("next") or url_for("inbox")
-    return redirect(nxt)
+    return redirect(safe_next(request.form.get("next"), url_for("inbox")))
 
 
 @app.get("/find")
@@ -400,18 +515,16 @@ def find():
     error = request.args.get("error") or ""
     rows = []
     if q:
-        m = scraper.TITLE_RE.search(q)
-        if m:
+        canon = scraper.canonical_title_url(q)
+        if canon:
+            m = scraper.TITLE_RE.search(q)
             slug, bid = m.group(1), m.group(2)
-            url = q.split("?")[0]
-            if not url.startswith("http"):
-                url = f"{scraper.BASE}/movies/{slug}/{bid}/"
             rows = [
                 {
                     "bluray_id": bid,
                     "slug": slug,
                     "title": scraper.slug_title(slug),
-                    "url": url,
+                    "url": canon,
                     "cover": scraper.cover_url(bid),
                     "fmt": scraper.classify(slug, slug),
                     "year": None,
@@ -427,15 +540,20 @@ def find():
 
 @app.post("/add")
 def add():
-    url = (request.form.get("url") or "").strip()
-    if not url:
+    raw = (request.form.get("url") or "").strip()
+    if not raw:
         return redirect(url_for("find"))
+    # Rebuild the URL from the matched slug + id rather than fetching what was posted,
+    # so the host we hit is never attacker-controlled.
+    url = scraper.canonical_title_url(raw)
+    if not url:
+        return redirect(url_for("find", q=raw, error="Need a blu-ray.com movie URL."))
     try:
         data = scraper.polite_parse_title(url)
     except Exception as e:
-        return redirect(url_for("find", q=url, error=f"Could not load that title: {e}"))
+        return redirect(url_for("find", q=raw, error=f"Could not load that title: {e}"))
     if not data.get("bluray_id"):
-        return redirect(url_for("find", q=url, error="Need a blu-ray.com movie URL."))
+        return redirect(url_for("find", q=raw, error="Need a blu-ray.com movie URL."))
     item = {
         "bluray_id": data["bluray_id"],
         "slug": data.get("slug"),
@@ -496,26 +614,36 @@ def add_name():
     con.commit()
     row = con.execute("SELECT * FROM titles WHERE bluray_id=?", (bid,)).fetchone()
     con.close()
-    try:
-        refresh_one(row)
-    except Exception:
-        pass
+    _refresh_title_async(row)
     return redirect(url_for("tracked"))
 
 
 @app.post("/refresh/releases")
+@admin_required
 def refresh_releases():
-    with _lock:
-        pull_releases()
-    return redirect(url_for("inbox"))
+    started = _run_job("releases", pull_releases)
+    return redirect(
+        url_for(
+            "inbox",
+            msg="Release pull started."
+            if started
+            else "A release pull is already running.",
+        )
+    )
 
 
 @app.post("/refresh/prices")
 @admin_required
 def refresh_prices():
-    with _lock:
-        pull_prices()
-    return redirect(url_for("users", msg="Price refresh finished."))
+    started = _run_job("prices", pull_prices)
+    return redirect(
+        url_for(
+            "users",
+            msg="Price refresh started."
+            if started
+            else "A price refresh is already running.",
+        )
+    )
 
 
 @app.get("/title/<bluray_id>")
@@ -541,5 +669,8 @@ def title_detail(bluray_id):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     db.connect().close()
     app.run(host="0.0.0.0", port=8790, debug=False)

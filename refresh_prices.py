@@ -10,8 +10,8 @@ import scraper
 
 def refresh_one(row) -> None:
     bid = row["bluray_id"]
-    url = row["url"] if "url" in row.keys() else ""
-    if scraper.is_bluray_title_url(url):
+    url = scraper.canonical_title_url(row["url"] if "url" in row.keys() else "")
+    if url:
         data = scraper.polite_parse_title(url)
         data["bluray_id"] = data.get("bluray_id") or bid
     else:

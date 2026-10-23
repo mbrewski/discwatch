@@ -70,6 +70,9 @@ def connect() -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")
+    # Background refreshes write concurrently with request threads; wait rather than
+    # failing straight away with "database is locked".
+    con.execute("PRAGMA busy_timeout=5000")
     con.executescript(SCHEMA)
     cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
     if "status" not in cols:
@@ -102,7 +105,7 @@ def upsert_release(con: sqlite3.Connection, item: dict) -> None:
     if row:
         con.execute(
             """UPDATE titles SET slug=COALESCE(?,slug), title=COALESCE(?,title),
-               url=?, cover=COALESCE(?,cover), fmt=COALESCE(?,fmt),
+               url=COALESCE(NULLIF(?,''),url), cover=COALESCE(?,cover), fmt=COALESCE(?,fmt),
                studio=COALESCE(?,studio), year=COALESCE(?,year),
                runtime=COALESCE(?,runtime), rating=COALESCE(?,rating),
                release_date=COALESCE(?,release_date),

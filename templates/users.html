@@ -4,7 +4,9 @@
 <h2>Users</h2>
 <p class="muted">Each person has their own tracking list. Catalog and prices are shared. Sign-ups wait here until you approve or deny them.</p>
 <h3>Prices</h3>
-<p class="muted">Automatic check every 12 hours{% if last_prices %} · last {{ last_prices[:19].replace('T',' ') }} UTC{% endif %}.</p>
+<p class="muted">Automatic check every 12 hours{% if last_prices %} · last {{ last_prices[:19].replace('T',' ') }} UTC{% endif %}.
+  {%- if job and not job.finished %}<br><strong>Refresh running</strong> since {{ job.started[:19].replace('T',' ') }} UTC — this takes a few minutes.{% endif %}</p>
+{% if job and job.finished and job.error %}<p class="err">Last refresh failed: {{ job.error }}</p>{% endif %}
 <form method="post" action="{{ url_for('refresh_prices') }}" class="row">
   <button type="submit">Refresh prices now</button>
 </form>
