@@ -436,12 +436,38 @@ def tracked():
     con = db.connect()
     rows = db.list_watched(con, g.user["id"])
     last = db.get_meta(con, "last_price_refresh")
+    others = db.list_other_users(con, g.user["id"])
     con.close()
     return render_template(
         "tracked.html",
         rows=rows,
         last=last,
+        others=others,
         offers=lambda s: json.loads(s or "[]"),
+        msg=request.args.get("msg"),
+        error=request.args.get("error"),
+    )
+
+
+@app.post("/share/<bluray_id>")
+def share(bluray_id):
+    to_user_id = request.form.get("to_user_id", type=int)
+    con = db.connect()
+    title_row = con.execute(
+        "SELECT title FROM titles WHERE bluray_id=?", (bluray_id,)
+    ).fetchone()
+    target = db.get_user(con, to_user_id) if to_user_id else None
+    if not title_row:
+        con.close()
+        return redirect(url_for("tracked", error="No such title."))
+    if not target or target["status"] != "approved" or target["id"] == g.user["id"]:
+        con.close()
+        return redirect(url_for("tracked", error="Pick a valid person to share with."))
+    db.set_watch(con, target["id"], bluray_id, True, shared_by=g.user["id"])
+    con.commit()
+    con.close()
+    return redirect(
+        url_for("tracked", msg=f"Shared \u201c{title_row['title']}\u201d with {target['username']}.")
     )
 
 

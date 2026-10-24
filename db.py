@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS watches (
   bluray_id TEXT NOT NULL,
   target_cents INTEGER,
   notes TEXT,
+  shared_by INTEGER,
   created_at TEXT NOT NULL,
   PRIMARY KEY (user_id, bluray_id)
 );
@@ -89,6 +90,10 @@ def connect() -> sqlite3.Connection:
             """UPDATE titles SET inbox_hidden=1
                WHERE source IN ('manual','manual-name','search')"""
         )
+        con.commit()
+    wcols = {r[1] for r in con.execute("PRAGMA table_info(watches)")}
+    if "shared_by" not in wcols:
+        con.execute("ALTER TABLE watches ADD COLUMN shared_by INTEGER")
         con.commit()
     return con
 
@@ -239,6 +244,15 @@ def get_user_by_name(con: sqlite3.Connection, username: str):
     ).fetchone()
 
 
+def list_other_users(con: sqlite3.Connection, user_id: int):
+    """Approved users someone could share a tracked title with."""
+    return con.execute(
+        """SELECT id, username FROM users
+           WHERE status='approved' AND id!=? ORDER BY username""",
+        (user_id,),
+    ).fetchall()
+
+
 def list_users(con: sqlite3.Connection):
     return con.execute(
         """SELECT id, username, is_admin, status, created_at FROM users
@@ -285,7 +299,12 @@ def admin_count(con: sqlite3.Connection) -> int:
 
 
 def set_watch(
-    con: sqlite3.Connection, user_id: int, bluray_id: str, on: bool, target_cents=None
+    con: sqlite3.Connection,
+    user_id: int,
+    bluray_id: str,
+    on: bool,
+    target_cents=None,
+    shared_by: int | None = None,
 ) -> None:
     if on:
         existing = con.execute(
@@ -300,9 +319,9 @@ def set_watch(
                 )
         else:
             con.execute(
-                """INSERT INTO watches(user_id, bluray_id, target_cents, created_at)
-                   VALUES(?,?,?,?)""",
-                (user_id, bluray_id, target_cents, now()),
+                """INSERT INTO watches(user_id, bluray_id, target_cents, shared_by, created_at)
+                   VALUES(?,?,?,?,?)""",
+                (user_id, bluray_id, target_cents, shared_by, now()),
             )
     else:
         con.execute(
@@ -333,8 +352,10 @@ def list_watched(con: sqlite3.Connection, user_id: int):
         """SELECT t.bluray_id, t.slug, t.title, t.url, t.cover, t.fmt, t.studio,
                   t.year, t.release_date, t.list_price_cents, t.best_price_cents,
                   t.last_offers, t.amazon_url,
-                  w.target_cents AS target_cents
+                  w.target_cents AS target_cents,
+                  su.username AS shared_by_username
            FROM watches w JOIN titles t ON t.bluray_id=w.bluray_id
+           LEFT JOIN users su ON su.id = w.shared_by
            WHERE w.user_id=?
            ORDER BY (t.best_price_cents IS NULL), t.best_price_cents ASC, t.title""",
         (user_id,),

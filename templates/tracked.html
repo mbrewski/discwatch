@@ -3,12 +3,14 @@
 {% block body %}
 <p class="muted">Shop prices refresh about every 12 hours{% if last %} · last check {{ last[:19].replace('T',' ') }} UTC{% endif %}.
   New-release list also pulls every 12 hours. Sources: blu-ray.com (Amazon/list), GRUV, Valoria Video, Vinegar Syndrome, Orbit DVD, DiabolikDVD, Walmart.</p>
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+{% if msg %}<p class="muted">{{ msg }}</p>{% endif %}
 {% if not rows %}
   <p>Nothing tracked yet. Use <a href="{{ url_for('find') }}">Find title</a> for any catalog disc, or pick from <a href="{{ url_for('inbox') }}">New releases</a>.</p>
 {% else %}
 <table>
   <tr>
-    <th></th><th>Title</th><th>Format</th><th>Release</th><th>Best</th><th>List</th><th>Where</th><th>Target</th><th></th>
+    <th></th><th>Title</th><th>Format</th><th>Release</th><th>Best</th><th>List</th><th>Where</th><th>Target</th><th></th><th></th>
   </tr>
   {% for r in rows %}
   {% set offs = offers(r.last_offers) %}
@@ -17,6 +19,7 @@
     <td>
       <a href="{{ url_for('title_detail', bluray_id=r.bluray_id) }}"><strong>{{ r.title }}</strong></a><br>
       <span class="muted">{{ r.studio or '' }}</span>
+      {% if r.shared_by_username %}<br><span class="pill shared">Shared by {{ r.shared_by_username }}</span>{% endif %}
     </td>
     <td><span class="pill {{ 'k4' if r.fmt=='4k' else 'bd' }}">{{ '4K' if r.fmt=='4k' else 'Blu-ray' }}</span></td>
     <td>{{ r.release_date or '—' }}</td>
@@ -45,9 +48,33 @@
         <button class="ghost" type="submit">Drop</button>
       </form>
     </td>
+    <td>
+      {% if others %}
+      <button class="ghost share-btn" type="button"
+        data-action="{{ url_for('share', bluray_id=r.bluray_id) }}" data-title="{{ r.title }}">Share</button>
+      {% endif %}
+    </td>
   </tr>
   {% endfor %}
 </table>
+
+{% if others %}
+<dialog id="share-dialog">
+  <form method="post" id="share-form">
+    <h3>Share with your friends!</h3>
+    <p class="muted">Add <strong id="share-title"></strong> to someone else's tracked list.</p>
+    <select name="to_user_id" required>
+      {% for u in others %}
+      <option value="{{ u.id }}">{{ u.username }}</option>
+      {% endfor %}
+    </select>
+    <div class="row">
+      <button type="submit">Share</button>
+      <button type="button" class="ghost" id="share-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
 {% endif %}
 <script>
 (function () {
@@ -78,6 +105,21 @@
       save();
     });
     window.addEventListener("pagehide", save);
+  });
+
+  var dialog = document.getElementById("share-dialog");
+  if (!dialog) return;
+  var form = document.getElementById("share-form");
+  var titleEl = document.getElementById("share-title");
+  document.querySelectorAll(".share-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      form.action = btn.dataset.action;
+      titleEl.textContent = btn.dataset.title;
+      dialog.showModal();
+    });
+  });
+  document.getElementById("share-cancel").addEventListener("click", function () {
+    dialog.close();
   });
 })();
 </script>
