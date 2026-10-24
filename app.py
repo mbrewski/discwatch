@@ -463,7 +463,11 @@ def inbox():
     if q:
         sql += " AND (t.title LIKE ? OR t.studio LIKE ?)"
         args.extend([f"%{q}%", f"%{q}%"])
-    sql += " ORDER BY datetime(t.updated_at) DESC LIMIT 250"
+    # created_at is written once on insert and never touched again, so it is a true
+    # "first seen" key. updated_at is rewritten for every row on every pull, which made
+    # this sort by pull order -- and since gather_releases() runs parse_rss() first, the
+    # actual new releases sorted to the bottom. Title breaks ties within a bulk insert.
+    sql += " ORDER BY datetime(t.created_at) DESC, t.title LIMIT 250"
     rows = con.execute(sql, args).fetchall()
     last = db.get_meta(con, "last_release_refresh")
     con.close()
