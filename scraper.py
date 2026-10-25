@@ -193,7 +193,55 @@ def parse_4k_hub() -> list[dict]:
         items.extend(parse_preorder_tables(chunk, "4k-upcoming"))
     if j >= 0:
         items.extend(parse_preorder_tables(html[j : j + 25000], "4k-preorder"))
+    for it in items:
+        if it.get("source") == "4k-preorder":
+            it["preorder"] = True
     return _dedupe(items)
+
+
+def parse_new_preorders() -> list[dict]:
+    """blu-ray.com 'New Blu-ray Pre-orders' cover grid (not the 4K hub tables)."""
+    html = fetch(PREORDERS)
+    items = []
+    seen: set[str] = set()
+
+    def add(slug: str, bid: str, title: str) -> None:
+        if bid in seen:
+            return
+        seen.add(bid)
+        title = htmlmod.unescape(title).replace(" (Blu-ray)", "").strip()
+        items.append(
+            {
+                "bluray_id": bid,
+                "slug": slug,
+                "title": title,
+                "url": f"{BASE}/movies/{slug}/{bid}/",
+                "cover": cover_url(bid),
+                "fmt": classify(title, slug),
+                "studio": None,
+                "year": None,
+                "runtime": None,
+                "rating": None,
+                "release_date": None,
+                "amazon_click": None,
+                "source": "preorder",
+                "preorder": True,
+            }
+        )
+
+    for slug, bid, title in re.findall(
+        r'href="https://www\.blu-ray\.com/movies/([^"/]+)/(\d+)/"[^>]*title="([^"]+)"',
+        html,
+    ):
+        add(slug, bid, title)
+    for slug, bid, title in re.findall(
+        r"window\.location = 'https://www\.blu-ray\.com/movies/([^'/]+)/(\d+)/'"
+        r'.*?<img class="cover"[^>]*title="([^"]+)"',
+        html,
+        re.S,
+    ):
+        add(slug, bid, title)
+    return items
 
 
 def parse_search_newest_4k() -> list[dict]:
@@ -315,6 +363,9 @@ def parse_title_page(url: str) -> dict:
             }
         )
 
+    blob = price_block or ""
+    preorder = bool(re.search(r"pre[-\s]?order", blob, re.I))
+
     best = None
     paid = [o for o in offers if o["retailer"] != "List / MSRP"]
     if paid:
@@ -333,6 +384,7 @@ def parse_title_page(url: str) -> dict:
         "best_price_cents": best,
         "amazon_url": amazon_url,
         "offers": offers,
+        "preorder": preorder,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -340,7 +392,7 @@ def parse_title_page(url: str) -> dict:
 def gather_releases() -> list[dict]:
     out = []
     errors = []
-    for fn in (parse_rss, parse_4k_hub, parse_search_newest_4k):
+    for fn in (parse_rss, parse_4k_hub, parse_search_newest_4k, parse_new_preorders):
         try:
             out.extend(fn())
         except Exception as e:
@@ -406,6 +458,11 @@ def _dedupe(items: list[dict]) -> list[dict]:
         for k, v in it.items():
             if v and not cur.get(k):
                 cur[k] = v
+        if it.get("preorder"):
+            cur["preorder"] = True
+        if it.get("source") in ("4k-preorder", "preorder"):
+            cur["source"] = it["source"]
+            cur["preorder"] = True
         if it.get("source") == "rss":
             # RSS descriptions are richer
             for k in ("studio", "year", "runtime", "rating", "release_date"):

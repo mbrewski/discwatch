@@ -5,6 +5,7 @@
   <img src="{{ row.cover or url_for('static', filename='placeholder.svg') }}" alt="" style="width:180px;border-radius:8px">
   <div>
     <span class="pill {{ 'k4' if row.fmt=='4k' else 'bd' }}">{{ '4K' if row.fmt=='4k' else 'Blu-ray' }}</span>
+    {% if row.preorder %}<span class="pill pre">Pre-order</span>{% endif %}
     <h2 style="margin:8px 0">{{ row.title }}</h2>
     <p class="muted">{{ row.studio or '' }} {% if row.year %}· {{ row.year }}{% endif %}
       {% if row.release_date %}· street {{ row.release_date }}{% endif %}</p>

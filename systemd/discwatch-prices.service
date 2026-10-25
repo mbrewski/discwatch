@@ -8,4 +8,5 @@ Type=oneshot
 WorkingDirectory=%h/develop/discwatch
 ExecStart=%h/develop/discwatch/venv/bin/python %h/develop/discwatch/refresh_prices.py
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-%h/develop/discwatch/data/smtp.env
 Nice=10

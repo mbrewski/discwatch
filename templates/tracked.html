@@ -10,7 +10,12 @@
 {% else %}
 <table>
   <tr>
-    <th></th><th>Title</th><th>Format</th><th>Release</th><th>Best</th><th>List</th><th>Where</th><th>Target</th><th></th><th></th>
+    <th></th>
+    <th><a href="{{ url_for('tracked', sort='title', dir=next_sort_dir('title')) }}" class="{{ 'active' if sort=='title' }}">Title{% if sort=='title' %} <span class="dir">{{ '↑' if direction=='asc' else '↓' }}</span>{% endif %}</a></th>
+    <th><a href="{{ url_for('tracked', sort='format', dir=next_sort_dir('format')) }}" class="{{ 'active' if sort=='format' }}">Format{% if sort=='format' %} <span class="dir">{{ '↑' if direction=='asc' else '↓' }}</span>{% endif %}</a></th>
+    <th><a href="{{ url_for('tracked', sort='release', dir=next_sort_dir('release')) }}" class="{{ 'active' if sort=='release' }}">Release{% if sort=='release' %} <span class="dir">{{ '↑' if direction=='asc' else '↓' }}</span>{% endif %}</a></th>
+    <th><a href="{{ url_for('tracked', sort='tracked', dir=next_sort_dir('tracked')) }}" class="{{ 'active' if sort=='tracked' }}">Tracked{% if sort=='tracked' %} <span class="dir">{{ '↑' if direction=='asc' else '↓' }}</span>{% endif %}</a></th>
+    <th>Best</th><th>List</th><th>Where</th><th>Target</th><th></th><th></th>
   </tr>
   {% for r in rows %}
   {% set offs = offers(r.last_offers) %}
@@ -19,10 +24,12 @@
     <td>
       <a href="{{ url_for('title_detail', bluray_id=r.bluray_id) }}"><strong>{{ r.title }}</strong></a><br>
       <span class="muted">{{ r.studio or '' }}</span>
+      {% if r.preorder %}<br><span class="pill pre">Pre-order</span>{% endif %}
       {% if r.shared_by_username %}<br><span class="pill shared">Shared by {{ r.shared_by_username }}</span>{% endif %}
     </td>
     <td><span class="pill {{ 'k4' if r.fmt=='4k' else 'bd' }}">{{ '4K' if r.fmt=='4k' else 'Blu-ray' }}</span></td>
     <td>{{ r.release_date or '—' }}</td>
+    <td class="muted">{{ r.tracked_at[:10] if r.tracked_at else '—' }}</td>
     <td class="price {% if r.target_cents and r.best_price_cents and r.best_price_cents <= r.target_cents %}hit{% endif %}">{{ money(r.best_price_cents) }}</td>
     <td>{{ money(r.list_price_cents) }}</td>
     <td>
@@ -37,21 +44,21 @@
     <td>
       <form class="target-form" method="post" action="{{ url_for('track', bluray_id=r.bluray_id) }}">
         <input type="hidden" name="tracked" value="1">
-        <input type="hidden" name="next" value="{{ url_for('tracked') }}">
+        <input type="hidden" name="next" value="{{ url_for('tracked', **tracked_q) }}">
         <input name="target" value="{{ '%.2f'|format(r.target_cents/100) if r.target_cents else '' }}" size="6" placeholder="$" inputmode="decimal">
       </form>
     </td>
     <td>
       <form method="post" action="{{ url_for('track', bluray_id=r.bluray_id) }}">
         <input type="hidden" name="tracked" value="0">
-        <input type="hidden" name="next" value="{{ url_for('tracked') }}">
+        <input type="hidden" name="next" value="{{ url_for('tracked', **tracked_q) }}">
         <button class="ghost" type="submit">Drop</button>
       </form>
     </td>
     <td>
       {% if others %}
       <button class="ghost share-btn" type="button"
-        data-action="{{ url_for('share', bluray_id=r.bluray_id) }}" data-title="{{ r.title }}">Share</button>
+        data-action="{{ url_for('share', bluray_id=r.bluray_id, **tracked_q) }}" data-title="{{ r.title }}">Share</button>
       {% endif %}
     </td>
   </tr>

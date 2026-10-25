@@ -13,6 +13,7 @@ RestartSec=3
 TimeoutStopSec=15
 KillMode=mixed
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-%h/develop/discwatch/data/smtp.env
 
 [Install]
 WantedBy=default.target

@@ -45,12 +45,20 @@
   <button type="submit">Add user</button>
 </form>
 <table>
-  <tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr>
+  <tr><th>Username</th><th>Role</th><th>Created</th><th>Email / alerts</th><th></th></tr>
   {% for r in active %}
   <tr>
     <td>{{ r.username }}</td>
     <td>{% if r.is_admin %}admin{% else %}user{% endif %}</td>
     <td class="muted">{{ r.created_at[:19].replace('T',' ') }}</td>
+    <td>
+      <form method="post" action="{{ url_for('users_alerts', user_id=r.id) }}" class="row" style="margin:0">
+        <input name="email" type="email" value="{{ r.email or '' }}" placeholder="email@icloud.com" size="22">
+        <label class="muted"><input type="checkbox" name="notify_preorder" value="1"
+          {{ 'checked' if r.notify_preorder }}> Pre-order alerts</label>
+        <button type="submit">Save</button>
+      </form>
+    </td>
     <td>
       {% if r.id != user.id %}
       <form method="post" action="{{ url_for('users_delete', user_id=r.id) }}" class="inline"
@@ -62,4 +70,8 @@
   </tr>
   {% endfor %}
 </table>
+<form method="post" action="{{ url_for('users_test_mail') }}" class="row">
+  <input name="email" type="email" placeholder="Send a test to…" required>
+  <button class="ghost" type="submit">Send test email</button>
+</form>
 {% endblock %}

@@ -24,12 +24,14 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
+import mail
 import scraper
 from refresh_prices import pull_prices, refresh_one
 from refresh_releases import pull_releases
 
 SECRET_FILE = Path(__file__).resolve().parent / "data" / "secret_key"
 USER_RE = re.compile(r"^[a-zA-Z0-9._-]{3,32}$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 LOGIN_FAIL_WINDOW = 900
 LOGIN_FAIL_MAX = 8
 
@@ -378,6 +380,43 @@ def users_create():
     return redirect(url_for("users", msg=f"Added {username}."))
 
 
+@app.post("/users/<int:user_id>/alerts")
+@admin_required
+def users_alerts(user_id):
+    email = (request.form.get("email") or "").strip()
+    notify = request.form.get("notify_preorder") == "1"
+    if email and not EMAIL_RE.match(email):
+        return redirect(url_for("users", error="That does not look like an email address."))
+    if notify and not email:
+        return redirect(url_for("users", error="Set an email before turning on pre-order alerts."))
+    con = db.connect()
+    target = db.get_user(con, user_id)
+    if not target:
+        con.close()
+        return redirect(url_for("users", error="No such user."))
+    db.set_user_alerts(con, user_id, email, notify)
+    con.commit()
+    con.close()
+    return redirect(url_for("users", msg=f"Updated alerts for {target['username']}."))
+
+
+@app.post("/users/test-mail")
+@admin_required
+def users_test_mail():
+    to = (request.form.get("email") or "").strip()
+    if not EMAIL_RE.match(to):
+        return redirect(url_for("users", error="Need a valid address to send a test."))
+    try:
+        mail.send_mail(
+            [to],
+            "Discwatch test",
+            "If you got this, SMTP is working. Pre-order alerts will use the same path.",
+        )
+    except Exception as e:
+        return redirect(url_for("users", error=f"Test mail failed: {e}"))
+    return redirect(url_for("users", msg=f"Test mail sent to {to}."))
+
+
 @app.post("/users/<int:user_id>/delete")
 @admin_required
 def users_delete(user_id):
@@ -431,10 +470,43 @@ def users_deny(user_id):
     return redirect(url_for("users", msg=f"Denied {name}."))
 
 
+TRACKED_SORT_DEFAULT_DIR = {
+    "title": "asc",
+    "format": "asc",
+    "release": "desc",
+    "tracked": "desc",
+}
+
+
+def _tracked_sort():
+    sort = request.args.get("sort") or ""
+    if sort not in TRACKED_SORT_DEFAULT_DIR:
+        return None, "asc"
+    direction = request.args.get("dir") or TRACKED_SORT_DEFAULT_DIR[sort]
+    if direction not in ("asc", "desc"):
+        direction = TRACKED_SORT_DEFAULT_DIR[sort]
+    return sort, direction
+
+
+def _tracked_query(sort, direction, **extra):
+    args = dict(extra)
+    if sort:
+        args["sort"] = sort
+        args["dir"] = direction
+    return args
+
+
+def _next_sort_dir(key, current_sort, current_dir):
+    if current_sort == key:
+        return "asc" if current_dir == "desc" else "desc"
+    return TRACKED_SORT_DEFAULT_DIR[key]
+
+
 @app.get("/")
 def tracked():
+    sort, direction = _tracked_sort()
     con = db.connect()
-    rows = db.list_watched(con, g.user["id"])
+    rows = db.list_watched(con, g.user["id"], sort=sort, direction=direction)
     last = db.get_meta(con, "last_price_refresh")
     others = db.list_other_users(con, g.user["id"])
     con.close()
@@ -443,6 +515,10 @@ def tracked():
         rows=rows,
         last=last,
         others=others,
+        sort=sort,
+        direction=direction,
+        tracked_q=_tracked_query(sort, direction),
+        next_sort_dir=lambda key: _next_sort_dir(key, sort, direction),
         offers=lambda s: json.loads(s or "[]"),
         msg=request.args.get("msg"),
         error=request.args.get("error"),
@@ -466,8 +542,16 @@ def share(bluray_id):
     db.set_watch(con, target["id"], bluray_id, True, shared_by=g.user["id"])
     con.commit()
     con.close()
+    sort, direction = _tracked_sort()
     return redirect(
-        url_for("tracked", msg=f"Shared \u201c{title_row['title']}\u201d with {target['username']}.")
+        url_for(
+            "tracked",
+            **_tracked_query(
+                sort,
+                direction,
+                msg=f"Shared \u201c{title_row['title']}\u201d with {target['username']}.",
+            ),
+        )
     )
 
 

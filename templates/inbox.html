@@ -34,6 +34,7 @@
     <div class="body">
       <div>
         <span class="pill {{ 'k4' if r.fmt=='4k' else 'bd' }}">{{ '4K' if r.fmt=='4k' else 'Blu-ray' }}</span>
+        {% if r.preorder %}<span class="pill pre">Pre-order</span>{% endif %}
         {% if r.year %}<span class="muted">{{ r.year }}</span>{% endif %}
       </div>
       <h3>{{ r.title }}</h3>

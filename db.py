@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS titles (
   last_offers TEXT,
   last_fetch TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  preorder INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS price_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +51,9 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   is_admin INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'approved',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  email TEXT,
+  notify_preorder INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS watches (
   user_id INTEGER NOT NULL,
@@ -95,6 +98,25 @@ def connect() -> sqlite3.Connection:
     if "shared_by" not in wcols:
         con.execute("ALTER TABLE watches ADD COLUMN shared_by INTEGER")
         con.commit()
+    tcols = {r[1] for r in con.execute("PRAGMA table_info(titles)")}
+    if "preorder" not in tcols:
+        con.execute(
+            "ALTER TABLE titles ADD COLUMN preorder INTEGER NOT NULL DEFAULT 0"
+        )
+        con.execute(
+            """UPDATE titles SET preorder=1
+               WHERE source IN ('4k-preorder','preorder')"""
+        )
+        con.commit()
+    ucols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
+    if "email" not in ucols:
+        con.execute("ALTER TABLE users ADD COLUMN email TEXT")
+        con.commit()
+    if "notify_preorder" not in ucols:
+        con.execute(
+            "ALTER TABLE users ADD COLUMN notify_preorder INTEGER NOT NULL DEFAULT 0"
+        )
+        con.commit()
     return con
 
 
@@ -102,19 +124,33 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def upsert_release(con: sqlite3.Connection, item: dict) -> None:
+def _item_preorder(item: dict) -> int:
+    if item.get("preorder"):
+        return 1
+    if item.get("source") in ("4k-preorder", "preorder"):
+        return 1
+    return 0
+
+
+def upsert_release(con: sqlite3.Connection, item: dict) -> bool:
+    """Insert or update a catalog row. True if this write newly marked it pre-order."""
     ts = now()
+    preorder = _item_preorder(item)
     row = con.execute(
-        "SELECT tracked FROM titles WHERE bluray_id=?", (item["bluray_id"],)
+        "SELECT tracked, preorder FROM titles WHERE bluray_id=?", (item["bluray_id"],)
     ).fetchone()
+    became = False
     if row:
+        became = bool(preorder) and not row["preorder"]
         con.execute(
             """UPDATE titles SET slug=COALESCE(?,slug), title=COALESCE(?,title),
                url=COALESCE(NULLIF(?,''),url), cover=COALESCE(?,cover), fmt=COALESCE(?,fmt),
                studio=COALESCE(?,studio), year=COALESCE(?,year),
                runtime=COALESCE(?,runtime), rating=COALESCE(?,rating),
                release_date=COALESCE(?,release_date),
-               source=COALESCE(?,source), updated_at=?
+               source=COALESCE(?,source),
+               preorder=CASE WHEN ? THEN 1 ELSE preorder END,
+               updated_at=?
                WHERE bluray_id=?""",
             (
                 item.get("slug"),
@@ -128,15 +164,17 @@ def upsert_release(con: sqlite3.Connection, item: dict) -> None:
                 item.get("rating"),
                 item.get("release_date"),
                 item.get("source"),
+                preorder,
                 ts,
                 item["bluray_id"],
             ),
         )
     else:
+        became = bool(preorder)
         con.execute(
             """INSERT INTO titles(bluray_id,slug,title,url,cover,fmt,studio,year,
-               runtime,rating,release_date,source,tracked,inbox_hidden,created_at,updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)""",
+               runtime,rating,release_date,source,tracked,inbox_hidden,preorder,created_at,updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)""",
             (
                 item["bluray_id"],
                 item.get("slug"),
@@ -151,10 +189,12 @@ def upsert_release(con: sqlite3.Connection, item: dict) -> None:
                 item.get("release_date"),
                 item.get("source"),
                 1 if item.get("inbox_hidden") else 0,
+                preorder,
                 ts,
                 ts,
             ),
         )
+    return became
 
 
 def hide_from_inbox(con: sqlite3.Connection, bluray_id: str) -> None:
@@ -178,14 +218,21 @@ def set_target(con: sqlite3.Connection, bluray_id: str, cents: int | None) -> No
     )
 
 
-def apply_prices(con: sqlite3.Connection, data: dict) -> None:
+def apply_prices(con: sqlite3.Connection, data: dict) -> bool:
     ts = data.get("fetched_at") or now()
+    preorder = 1 if data.get("preorder") else 0
+    row = con.execute(
+        "SELECT preorder FROM titles WHERE bluray_id=?", (data["bluray_id"],)
+    ).fetchone()
+    became = bool(row) and bool(preorder) and not row["preorder"]
     con.execute(
         """UPDATE titles SET title=COALESCE(?,title), cover=COALESCE(?,cover),
            fmt=COALESCE(?,fmt), studio=COALESCE(?,studio),
            release_date=COALESCE(?,release_date),
            list_price_cents=?, best_price_cents=?, amazon_url=?,
-           last_offers=?, last_fetch=?, updated_at=?
+           last_offers=?, last_fetch=?,
+           preorder=CASE WHEN ? THEN 1 ELSE preorder END,
+           updated_at=?
            WHERE bluray_id=?""",
         (
             data.get("title"),
@@ -198,6 +245,7 @@ def apply_prices(con: sqlite3.Connection, data: dict) -> None:
             data.get("amazon_url"),
             json.dumps(data.get("offers") or []),
             ts,
+            preorder,
             ts,
             data["bluray_id"],
         ),
@@ -216,6 +264,7 @@ def apply_prices(con: sqlite3.Connection, data: dict) -> None:
             "INSERT INTO price_history(bluray_id,retailer,price_cents,seen_at) VALUES(?,?,?,?)",
             (data["bluray_id"], off["retailer"], off["price_cents"], ts),
         )
+    return became
 
 
 def set_meta(con: sqlite3.Connection, key: str, value: str) -> None:
@@ -255,9 +304,28 @@ def list_other_users(con: sqlite3.Connection, user_id: int):
 
 def list_users(con: sqlite3.Connection):
     return con.execute(
-        """SELECT id, username, is_admin, status, created_at FROM users
+        """SELECT id, username, is_admin, status, created_at, email, notify_preorder
+           FROM users
            ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, username"""
     ).fetchall()
+
+
+def set_user_alerts(
+    con: sqlite3.Connection, user_id: int, email: str | None, notify_preorder: bool
+) -> None:
+    con.execute(
+        "UPDATE users SET email=?, notify_preorder=? WHERE id=?",
+        ((email or "").strip() or None, 1 if notify_preorder else 0, user_id),
+    )
+
+
+def preorder_subscribers(con: sqlite3.Connection) -> list[str]:
+    rows = con.execute(
+        """SELECT email FROM users
+           WHERE status='approved' AND notify_preorder=1
+             AND email IS NOT NULL AND trim(email)!=''"""
+    ).fetchall()
+    return [r["email"] for r in rows]
 
 
 def create_user(
@@ -347,17 +415,44 @@ def is_watching(con: sqlite3.Connection, user_id: int, bluray_id: str) -> bool:
     return bool(row)
 
 
-def list_watched(con: sqlite3.Connection, user_id: int):
+WATCH_SORTS = {
+    "title": "LOWER(t.title)",
+    "format": "CASE t.fmt WHEN '4k' THEN 0 ELSE 1 END",
+    "release": "t.release_date",
+    "tracked": "datetime(w.created_at)",
+}
+
+
+def list_watched(
+    con: sqlite3.Connection,
+    user_id: int,
+    sort: str | None = None,
+    direction: str = "asc",
+):
+    dir_sql = "DESC" if direction == "desc" else "ASC"
+    if sort in WATCH_SORTS:
+        col = WATCH_SORTS[sort]
+        if sort == "release":
+            order = (
+                f"(t.release_date IS NULL OR t.release_date=''), {col} {dir_sql}, LOWER(t.title)"
+            )
+        elif sort == "tracked":
+            order = f"({col} IS NULL), {col} {dir_sql}, LOWER(t.title)"
+        else:
+            order = f"{col} {dir_sql}, LOWER(t.title)"
+    else:
+        order = "(t.best_price_cents IS NULL), t.best_price_cents ASC, t.title"
     return con.execute(
-        """SELECT t.bluray_id, t.slug, t.title, t.url, t.cover, t.fmt, t.studio,
+        f"""SELECT t.bluray_id, t.slug, t.title, t.url, t.cover, t.fmt, t.studio,
                   t.year, t.release_date, t.list_price_cents, t.best_price_cents,
-                  t.last_offers, t.amazon_url,
+                  t.last_offers, t.amazon_url, t.preorder,
                   w.target_cents AS target_cents,
+                  w.created_at AS tracked_at,
                   su.username AS shared_by_username
            FROM watches w JOIN titles t ON t.bluray_id=w.bluray_id
            LEFT JOIN users su ON su.id = w.shared_by
            WHERE w.user_id=?
-           ORDER BY (t.best_price_cents IS NULL), t.best_price_cents ASC, t.title""",
+           ORDER BY {order}""",
         (user_id,),
     ).fetchall()
 

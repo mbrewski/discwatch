@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 
 import db
+import mail
 import scraper
 
 
@@ -24,9 +25,15 @@ def refresh_one(row) -> None:
         data["studio"] = None
         data["release_date"] = None
     con = db.connect()
-    db.apply_prices(con, data)
+    became = db.apply_prices(con, data)
+    addrs = db.preorder_subscribers(con) if became else []
     con.commit()
     con.close()
+    if became:
+        try:
+            mail.notify_preorders(addrs, [data])
+        except Exception as e:
+            print(f"discwatch: pre-order mail failed: {e}", file=sys.stderr, flush=True)
 
 
 def pull_prices() -> int:
