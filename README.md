@@ -1,6 +1,6 @@
 # Discwatch
 
-Source: https://github.com/mbrewski/discwatch (private).
+Source: https://github.com/mbrewski/discwatch.
 
 Local 4K / Blu-ray price tracker. It pulls recent discs from [blu-ray.com](https://www.blu-ray.com), lets you track catalog titles or movies with no disc page yet, and checks where they are listed and for how much.
 
@@ -58,8 +58,8 @@ When a title is **newly** marked pre-order (first time on the new-preorders page
 SMTP is `smtp.mail.me.com:587` (STARTTLS). `data/smtp.env` (gitignored) holds:
 
 ```
-SMTP_USER=mbrewski@me.com
-SMTP_FROM=mbrewski@me.com
+SMTP_USER=you@icloud.com
+SMTP_FROM=you@icloud.com
 ```
 
 The app-specific password is read from `~/secrets/apple.env` (`PASSWORD`), then Vault `secret/apple`. Units load `EnvironmentFile=-%h/develop/discwatch/data/smtp.env`. Do not put the password in git.
