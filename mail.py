@@ -147,6 +147,7 @@ def notify_preorders(to_addrs: list[str], items: list[dict]) -> int:
     if not to_addrs or not items:
         return 0
     subject, body = format_preorder_digest(items)
-    send_mail(to_addrs, subject, body)
+    for addr in to_addrs:
+        send_mail([addr], subject, body)
     log.info("pre-order alert sent to %s (%s titles)", ",".join(to_addrs), len(items))
     return len(items)

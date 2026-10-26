@@ -139,7 +139,7 @@ class TestMailDigest(unittest.TestCase):
         self.assertEqual(mail.notify_preorders([], [_item()]), 0)
         self.assertEqual(mail.notify_preorders(["a@b.c"], []), 0)
 
-    def test_send_mail_uses_cc_and_login(self):
+    def test_notify_sends_one_mail_per_address_without_cc(self):
         smtp = mock.MagicMock()
         smtp.__enter__.return_value = smtp
         smtp.__exit__.return_value = False
@@ -154,18 +154,17 @@ class TestMailDigest(unittest.TestCase):
             mock.patch.object(mail, "smtp_settings", return_value=cfg),
             mock.patch("smtplib.SMTP", return_value=smtp) as ctor,
         ):
-            mail.send_mail(
-                ["dliban2000@yahoo.com"],
-                "subj",
-                "body",
-                cc_addrs=["matt@mattbrewer.me"],
+            mail.notify_preorders(
+                ["dliban2000@yahoo.com", "matt@mattbrewer.me"],
+                [_item()],
             )
-        ctor.assert_called_once_with("smtp.mail.me.com", 587, timeout=30)
-        smtp.login.assert_called_once_with("mbrewski@me.com", "xxxx-xxxx-xxxx-xxxx")
-        msg = smtp.send_message.call_args[0][0]
-        self.assertEqual(msg["To"], "dliban2000@yahoo.com")
-        self.assertEqual(msg["Cc"], "matt@mattbrewer.me")
-        self.assertEqual(msg["From"], "mbrewski@me.com")
+        self.assertEqual(ctor.call_count, 2)
+        smtp.login.assert_called_with("mbrewski@me.com", "xxxx-xxxx-xxxx-xxxx")
+        tos = [c[0][0]["To"] for c in smtp.send_message.call_args_list]
+        ccs = [c[0][0]["Cc"] for c in smtp.send_message.call_args_list]
+        self.assertEqual(tos, ["dliban2000@yahoo.com", "matt@mattbrewer.me"])
+        self.assertEqual(ccs, [None, None])
+        self.assertEqual(smtp.send_message.call_args_list[0][0][0]["From"], "mbrewski@me.com")
 
 
 class TestPullReleasesAlert(TempDb):
