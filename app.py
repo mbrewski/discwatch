@@ -25,6 +25,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
 import mail
+import retailers
 import scraper
 from refresh_prices import pull_prices, refresh_one
 from refresh_releases import pull_releases
@@ -649,7 +650,20 @@ def find():
                 rows = scraper.search_catalog(q)
             except Exception as e:
                 error = f"Catalog search failed: {e}"
-    return render_template("find.html", q=q, rows=rows, error=error)
+    shop_rows = []
+    if q and not rows:
+        year = None
+        ym = re.search(r"\b((?:19|20)\d{2})\b", q)
+        if ym:
+            year = ym.group(1)
+        try:
+            shop_rows = retailers.search_shops(q, year=year)
+        except Exception as e:
+            if not error:
+                error = f"Shop search failed: {e}"
+    return render_template(
+        "find.html", q=q, rows=rows, shop_rows=shop_rows, error=error
+    )
 
 
 @app.post("/add")

@@ -5,7 +5,7 @@ Source: https://github.com/mbrewski/discwatch.
 Local 4K / Blu-ray price tracker. It pulls recent discs from [blu-ray.com](https://www.blu-ray.com), lets you track catalog titles or movies with no disc page yet, and checks where they are listed and for how much.
 
 **Live:** https://discwatch.mattbrewer.me (public, no Cloudflare Access)  
-**LAN:** http://127.0.0.1:8790 or http://10.145.22.82:8790
+**LAN:** http://10.145.22.63:8790 (LXC 106 `web`)
 
 ## Run
 
@@ -21,7 +21,14 @@ systemctl --user status discwatch.service discwatch-releases.timer discwatch-pri
 - `discwatch-releases.timer` — blu-ray.com release list (RSS, 4K hub, newest UHD search, **new pre-orders**). New pre-orders trigger email.
 - `discwatch-prices.timer` — shop prices for watched titles. Admins can still **Refresh prices now** on Users.
 
-After code changes:
+After code changes, deploy to the LXC (does not overwrite live `data/` unless `--with-data`):
+
+```bash
+./deploy.sh
+./deploy.sh --skip-deps
+```
+
+On the CT:
 
 ```bash
 systemctl --user daemon-reload
@@ -66,7 +73,7 @@ The app-specific password is read from `~/secrets/apple.env` (`PASSWORD`), then 
 
 Logins use Flask sessions (`data/secret_key`). Passwords are hashed (pbkdf2). The site is still on the public internet; anyone can hit `/setup` until the first admin exists, then they need an account.
 
-Name-only titles skip blu-ray.com and still query the other shops. Covers come from blu-ray.com when a page exists; otherwise a placeholder.
+Name-only titles skip blu-ray.com and still query the other shops. Covers come from blu-ray.com when a page exists; otherwise a placeholder. Find (`/find`) searches blu-ray.com first; if that returns nothing it queries the shop sources and offers Track by name on those listings.
 
 ## Price sources
 
@@ -76,6 +83,7 @@ Name-only titles skip blu-ray.com and still query the other shops. Covers come f
 | GRUV, Valoria Video, Vinegar Syndrome, Orbit DVD | Shopify `search/suggest.json` |
 | Walmart | mobile search HTML `__NEXT_DATA__` |
 | DiabolikDVD | DuckDuckGo Lite snippets (`site:diabolikdvd.com/product …`); the shop itself is Cloudflare-challenged |
+| Arrow Video | US store `arrowvideo.com/search` product cards (THG/Altitude; not Shopify) |
 
 Matching requires the shop title to **start with the same name** (short titles cannot match as a word inside a longer title). Example: *Hope* must not match *Hillsong: Let Hope Rise*. Extra tokens after a 1–2 word query are rejected. Year mismatch is penalized. A miss is omitted.
 
@@ -86,7 +94,7 @@ Best price ignores List/MSRP.
 ```
 app.py                 Flask UI and track/add/refresh
 scraper.py             blu-ray.com RSS, hub, new pre-orders, catalog search, title pages
-retailers.py           GRUV / Valoria / VS / Orbit / Walmart / Diabolik
+retailers.py           GRUV / Valoria / VS / Orbit / Walmart / Diabolik / Arrow Video
 db.py                  SQLite (data/discwatch.sqlite); titles.preorder, users.email
 mail.py                iCloud SMTP + pre-order digest
 refresh_releases.py    12h list pull; emails new pre-orders

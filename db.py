@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -366,6 +367,38 @@ def admin_count(con: sqlite3.Connection) -> int:
     ).fetchone()[0]
 
 
+def title_watch_key(title: str | None, fmt: str | None) -> tuple[str, str]:
+    t = (title or "").lower().strip()
+    t = re.sub(r"\s*\((?:19|20)\d{2}\)\s*$", "", t)
+    t = re.sub(r"\s+", " ", t)
+    f = "4k" if (fmt or "") == "4k" else "bluray"
+    return t, f
+
+
+def equivalent_watch_id(
+    con: sqlite3.Connection, user_id: int, bluray_id: str
+) -> str | None:
+    """Existing watch for the same film+format, even if the catalog id differs."""
+    src = con.execute(
+        "SELECT title, fmt FROM titles WHERE bluray_id=?", (bluray_id,)
+    ).fetchone()
+    if not src:
+        return None
+    key = title_watch_key(src["title"], src["fmt"])
+    if not key[0]:
+        return None
+    rows = con.execute(
+        """SELECT t.bluray_id, t.title, t.fmt FROM watches w
+           JOIN titles t ON t.bluray_id=w.bluray_id
+           WHERE w.user_id=?""",
+        (user_id,),
+    ).fetchall()
+    for row in rows:
+        if title_watch_key(row["title"], row["fmt"]) == key:
+            return row["bluray_id"]
+    return None
+
+
 def set_watch(
     con: sqlite3.Connection,
     user_id: int,
@@ -379,11 +412,30 @@ def set_watch(
             "SELECT target_cents FROM watches WHERE user_id=? AND bluray_id=?",
             (user_id, bluray_id),
         ).fetchone()
+        if not existing:
+            alias = equivalent_watch_id(con, user_id, bluray_id)
+            if alias:
+                if shared_by is not None:
+                    con.execute(
+                        "UPDATE watches SET shared_by=? WHERE user_id=? AND bluray_id=?",
+                        (shared_by, user_id, alias),
+                    )
+                if target_cents is not None:
+                    con.execute(
+                        "UPDATE watches SET target_cents=? WHERE user_id=? AND bluray_id=?",
+                        (target_cents, user_id, alias),
+                    )
+                return
         if existing:
             if target_cents is not None:
                 con.execute(
                     "UPDATE watches SET target_cents=? WHERE user_id=? AND bluray_id=?",
                     (target_cents, user_id, bluray_id),
+                )
+            if shared_by is not None:
+                con.execute(
+                    "UPDATE watches SET shared_by=? WHERE user_id=? AND bluray_id=?",
+                    (shared_by, user_id, bluray_id),
                 )
         else:
             con.execute(

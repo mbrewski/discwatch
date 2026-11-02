@@ -57,6 +57,60 @@ class TempDb(unittest.TestCase):
         self._tmp.cleanup()
 
 
+class TestShareDedupe(TempDb):
+    def test_share_reuses_same_film_different_id(self):
+        db.upsert_release(
+            self.con,
+            _item(
+                bluray_id="m-old",
+                title="Never after dark",
+                fmt="bluray",
+                source="manual-name",
+            ),
+        )
+        db.upsert_release(
+            self.con,
+            _item(
+                bluray_id="m-new",
+                title="Never After Dark",
+                fmt="bluray",
+                year="2026",
+                source="manual-name",
+            ),
+        )
+        db.upsert_release(
+            self.con,
+            _item(
+                bluray_id="m-4k",
+                title="Never After Dark",
+                fmt="4k",
+                year="2026",
+                source="manual-name",
+            ),
+        )
+        db.set_watch(self.con, 1, "m-old", True)
+        db.set_watch(self.con, 1, "m-new", True, shared_by=2)
+        rows = self.con.execute(
+            "SELECT bluray_id, shared_by FROM watches WHERE user_id=1 ORDER BY bluray_id"
+        ).fetchall()
+        self.assertEqual([r["bluray_id"] for r in rows], ["m-old"])
+        self.assertEqual(rows[0]["shared_by"], 2)
+        db.set_watch(self.con, 1, "m-4k", True, shared_by=2)
+        ids = [
+            r["bluray_id"]
+            for r in self.con.execute(
+                "SELECT bluray_id FROM watches WHERE user_id=1 ORDER BY bluray_id"
+            )
+        ]
+        self.assertEqual(ids, ["m-4k", "m-old"])
+
+    def test_title_watch_key_strips_year(self):
+        self.assertEqual(
+            db.title_watch_key("Never After Dark (2026)", "bluray"),
+            db.title_watch_key("never after dark", "Blu-ray"),
+        )
+
+
 class TestPreorderDb(TempDb):
     def test_upsert_marks_new_preorder_once(self):
         first = db.upsert_release(self.con, _item())
@@ -281,5 +335,138 @@ class TestFlaskSmoke(TempDb):
         self.assertEqual(r.status_code, 403)
 
 
+ARROW_SEARCH_HTML = """
+<div data-testid="product-grid">
+  <div class="product-card" data-testid="product-item">
+    <a href="/p/donnie-darko-blu-ray/12946757/">x</a>
+    <a href="/p/donnie-darko-blu-ray/12946757/" data-testid="product-title">Donnie Darko Blu-ray</a>
+    <span class="sr-only">Current price:  $17.00.</span>
+  </div>
+  <div class="product-card" data-testid="product-item">
+    <a href="/p/dvd/donnie-darko/13175323/">x</a>
+    <a href="/p/dvd/donnie-darko/13175323/" data-testid="product-title">Donnie Darko</a>
+    <span class="sr-only">Current price:  $20.00.</span>
+  </div>
+  <div class="product-card" data-testid="product-item">
+    <a href="/p/donnie-darko-limited-edition-4k-uhd/12857875/">x</a>
+    <a href="/p/donnie-darko-limited-edition-4k-uhd/12857875/" data-testid="product-title">Donnie Darko Limited Edition 4K UHD</a>
+    <span class="sr-only">Current price:  $45.00.</span>
+  </div>
+</div>
+"""
+
+
+class TestShopSearch(unittest.TestCase):
+    def test_search_shops_maps_lookup(self):
+        import retailers
+
+        hit = {
+            "retailer": "Arrow Video",
+            "price_cents": 3500,
+            "url": "https://www.arrowvideo.com/p/4k/bullitt-limited-edition-4k-uhd/18077895/",
+            "note": "Arrow Video US",
+            "product_title": "Bullitt Limited Edition 4K UHD",
+        }
+        with mock.patch.object(retailers, "lookup_all", return_value=[hit]) as lookup:
+            rows = retailers.search_shops("Bullitt 4K", year="1968")
+        lookup.assert_called_once()
+        self.assertEqual(lookup.call_args[0][1], "4k")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["retailer"], "Arrow Video")
+        self.assertEqual(rows[0]["fmt"], "4k")
+        self.assertEqual(rows[0]["track_title"], "Bullitt Limited Edition")
+        self.assertEqual(rows[0]["year"], "1968")
+
+
+class TestFindShopFallback(TempDb):
+    def setUp(self):
+        super().setUp()
+        import app as appmod
+
+        self.appmod = appmod
+        self.appmod._login_fails.clear()
+        self.client = appmod.app.test_client()
+        r = self.client.post(
+            "/setup",
+            data={"username": "mbrewski", "password": "password1"},
+            follow_redirects=False,
+        )
+        self.assertEqual(r.status_code, 302)
+
+    def test_shops_when_catalog_empty(self):
+        shop = [
+            {
+                "retailer": "Arrow Video",
+                "title": "Bullitt Limited Edition 4K UHD",
+                "track_title": "Bullitt",
+                "url": "https://www.arrowvideo.com/p/4k/bullitt/1/",
+                "price_cents": 3500,
+                "fmt": "4k",
+                "year": "1968",
+                "note": None,
+                "source": "shop",
+            }
+        ]
+        with mock.patch.object(scraper, "search_catalog", return_value=[]), mock.patch(
+            "retailers.search_shops", return_value=shop
+        ) as shops:
+            r = self.client.get("/find?q=Bullitt")
+        self.assertEqual(r.status_code, 200)
+        shops.assert_called_once()
+        self.assertIn(b"Arrow Video", r.data)
+        self.assertIn(b"$35.00", r.data)
+        self.assertIn(b"Track by name", r.data)
+        self.assertIn(b"Shop listings", r.data)
+
+    def test_skips_shops_when_catalog_hits(self):
+        rows = [
+            {
+                "bluray_id": "1",
+                "slug": "Bullitt-4K-Blu-ray",
+                "title": "Bullitt 4K",
+                "url": "https://www.blu-ray.com/movies/Bullitt-4K-Blu-ray/1/",
+                "cover": "/static/placeholder.svg",
+                "fmt": "4k",
+                "year": "1968",
+            }
+        ]
+        with mock.patch.object(scraper, "search_catalog", return_value=rows), mock.patch(
+            "retailers.search_shops"
+        ) as shops:
+            r = self.client.get("/find?q=Bullitt")
+        self.assertEqual(r.status_code, 200)
+        shops.assert_not_called()
+        self.assertIn(b"Bullitt 4K", r.data)
+        self.assertNotIn(b"Shop listings", r.data)
+
+
+class TestArrowSearch(unittest.TestCase):
+    def test_parse_and_prefer_4k(self):
+        import retailers
+
+        items = retailers._parse_arrow_search(ARROW_SEARCH_HTML)
+        self.assertEqual(len(items), 3)
+        self.assertEqual(items[0]["price_cents"], 1700)
+
+        class FakeResp:
+            text = ARROW_SEARCH_HTML
+            def raise_for_status(self):
+                return None
+
+        class FakeSess:
+            def get(self, url, headers=None, timeout=None):
+                self.url = url
+                return FakeResp()
+
+        sess = FakeSess()
+        hit = retailers.lookup_arrow(sess, "Donnie Darko", "4k", year="2001")
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["retailer"], "Arrow Video")
+        self.assertEqual(hit["price_cents"], 4500)
+        self.assertIn("4k-uhd", hit["url"])
+        self.assertIn("q=Donnie+Darko+4K", sess.url)
+
+
 if __name__ == "__main__":
     unittest.main()
+

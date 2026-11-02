@@ -254,6 +254,77 @@ def lookup_walmart(
     }
 
 
+ARROW_ORIGIN = "https://www.arrowvideo.com"
+
+
+def _parse_arrow_search(html: str) -> list[dict]:
+    """Product cards on arrowvideo.com /search/?q= (THG/Altitude storefront)."""
+    items = []
+    chunks = html.split('data-testid="product-item"')
+    for chunk in chunks[1:]:
+        block = chunk[:8000]
+        href_m = re.search(r'href="(/p/[^"]+/)"', block)
+        if not href_m:
+            continue
+        path = unescape(href_m.group(1))
+        title_m = re.search(
+            r'data-testid="product-title"[^>]*>(.*?)</(?:a|h2|h3|span|div)>',
+            block,
+            re.S | re.I,
+        )
+        if not title_m:
+            title_m = re.search(
+                r'class="[^"]*product-item-title[^"]*"[^>]*>(.*?)</a>',
+                block,
+                re.S | re.I,
+            )
+        if not title_m:
+            continue
+        title = unescape(re.sub(r"<[^>]+>", " ", title_m.group(1)))
+        title = re.sub(r"\s+", " ", title).strip()
+        if not title:
+            continue
+        pm = re.search(r"Current price:\s*\$([0-9]+(?:\.[0-9]{2})?)", block)
+        cents = _money_to_cents(pm.group(0) if pm else None)
+        if cents is None:
+            continue
+        items.append({"title": title, "url": ARROW_ORIGIN + path, "price_cents": cents})
+    return items
+
+
+def lookup_arrow(
+    session: requests.Session, title: str, fmt: str, year: str | None = None
+) -> dict | None:
+    q = _core_title(title)
+    q = f"{q} 4K" if fmt == "4k" else f"{q} Blu-ray"
+    url = ARROW_ORIGIN + "/search/?" + urllib.parse.urlencode({"q": q})
+    r = session.get(
+        url,
+        headers={"Accept": "text/html,application/xhtml+xml"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    products = _parse_arrow_search(r.text)
+    if not products:
+        return None
+    want_4k = fmt == "4k"
+    ranked = [(_score(title, p["title"], want_4k, year=year), p) for p in products]
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    if not ranked or ranked[0][0] < 0.7:
+        return None
+    sc, hit = ranked[0]
+    note = "Arrow Video US"
+    if sc < 0.75:
+        note += f" · match {sc:.2f}"
+    return {
+        "retailer": "Arrow Video",
+        "price_cents": hit["price_cents"],
+        "url": hit["url"],
+        "note": note,
+        "product_title": hit["title"],
+    }
+
+
 def lookup_diabolik(
     session: requests.Session, title: str, fmt: str, year: str | None = None
 ) -> dict | None:
@@ -352,6 +423,7 @@ STORES: list[tuple[str, Callable]] = [
         lambda s, t, f, y: lookup_shopify(s, "Orbit DVD", "https://www.orbitdvd.com", t, f, y),
     ),
     ("DiabolikDVD", lookup_diabolik),
+    ("Arrow Video", lookup_arrow),
 ]
 
 
@@ -370,3 +442,52 @@ def lookup_all(
             offers.append(hit)
         time.sleep(pause)
     return offers
+
+
+def _fmts_from_query(q: str) -> list[str]:
+    if FORMAT_4K.search(q):
+        return ["4k"]
+    if FORMAT_BD.search(q):
+        return ["bluray"]
+    return ["4k", "bluray"]
+
+
+def search_shops(
+    title: str,
+    fmt: str | None = None,
+    year: str | None = None,
+    pause: float = 0.15,
+) -> list[dict]:
+    """Shop hits for Find when blu-ray.com returned nothing. One card per store match."""
+    q = (title or "").strip()
+    if not q:
+        return []
+    fmts = [fmt] if fmt in ("4k", "bluray") else _fmts_from_query(q)
+    seen: set[tuple] = set()
+    out: list[dict] = []
+    for f in fmts:
+        for hit in lookup_all(q, f, year=year, pause=pause):
+            key = (hit.get("retailer"), hit.get("url"))
+            if key in seen:
+                continue
+            seen.add(key)
+            pt = hit.get("product_title") or q
+            p4k = bool(FORMAT_4K.search(pt))
+            track_fmt = "4k" if p4k else "bluray"
+            if not p4k and not FORMAT_BD.search(pt) and f == "4k":
+                track_fmt = "4k"
+            years = re.findall(r"\b(?:19|20)\d{2}\b", pt)
+            out.append(
+                {
+                    "retailer": hit["retailer"],
+                    "title": pt,
+                    "track_title": _core_title(pt) or q,
+                    "url": hit["url"],
+                    "price_cents": hit["price_cents"],
+                    "fmt": track_fmt,
+                    "year": year or (years[0] if years else None),
+                    "note": hit.get("note"),
+                    "source": "shop",
+                }
+            )
+    return out
