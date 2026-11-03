@@ -26,12 +26,17 @@ def refresh_one(row) -> None:
         data["release_date"] = None
     con = db.connect()
     became = db.apply_prices(con, data)
-    addrs = db.preorder_subscribers(con) if became else []
+    batches = []
+    if became:
+        for sub in db.preorder_subscribers(con):
+            mine = db.watched_among(con, sub["id"], [data])
+            if mine:
+                batches.append((sub["email"], mine))
     con.commit()
     con.close()
-    if became:
+    for addr, mine in batches:
         try:
-            mail.notify_preorders(addrs, [data])
+            mail.notify_preorders([addr], mine)
         except Exception as e:
             print(f"discwatch: pre-order mail failed: {e}", file=sys.stderr, flush=True)
 

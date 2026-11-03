@@ -18,7 +18,7 @@ systemctl --user status discwatch.service discwatch-releases.timer discwatch-pri
 
 `discwatch.service` binds `0.0.0.0:8790`. Two timers run every 12 hours:
 
-- `discwatch-releases.timer` — blu-ray.com release list (RSS, 4K hub, newest UHD search, **new pre-orders**). New pre-orders trigger email.
+- `discwatch-releases.timer` — blu-ray.com release list (RSS, 4K hub, newest UHD search, **new pre-orders**). New pre-orders email only titles on that user's Tracked list.
 - `discwatch-prices.timer` — shop prices for watched titles. Admins can still **Refresh prices now** on Users.
 
 After code changes, deploy to the LXC (does not overwrite live `data/` unless `--with-data`):
@@ -47,7 +47,7 @@ Smoke tests in `tests/test_smoke.py` use a temp sqlite file, fixture HTML, and m
 ./venv/bin/python -m unittest discover -s tests -v
 ```
 
-Covers pre-order upsert (alert once), price-page transition, subscriber flags, pre-order parsers, digest/CC SMTP, release-pull alerting, Flask setup/login/Users alerts, inbox pill, mocked test-mail, and non-admin 403.
+Covers pre-order upsert (alert once), price-page transition, subscriber flags, pre-order parsers, digest/CC SMTP, release-pull alerting (tracked-list only), Flask setup/login/Users alerts, inbox pill, mocked test-mail, and non-admin 403.
 
 ## Use
 
@@ -60,7 +60,7 @@ First visit opens **Create admin**. **Sign up** on the login page creates a prov
 
 ### Pre-order email
 
-When a title is **newly** marked pre-order (first time on the new-preorders page, the 4K hub pre-order table, or a title page that says pre-order), Discwatch emails every approved user with an address and **Pre-order alerts** on. Titles already flagged in the DB are not re-sent. The 12h price job can also fire if a watched title page newly says pre-order.
+When a title is **newly** marked pre-order (first time on the new-preorders page, the 4K hub pre-order table, or a title page that says pre-order), Discwatch emails each approved user who has an address, **Pre-order alerts** on, **and that title on their Tracked list** (same film+format counts even if the catalog id differs). Untracked new pre-orders stay in the inbox only. Titles already flagged in the DB are not re-sent. The 12h price job can also fire if a watched title page newly says pre-order.
 
 SMTP is `smtp.mail.me.com:587` (STARTTLS). `data/smtp.env` (gitignored) holds:
 

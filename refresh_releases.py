@@ -17,15 +17,23 @@ def pull_releases() -> int:
         if db.upsert_release(con, it):
             became.append(it)
     db.set_meta(con, "last_release_refresh", db.now())
-    addrs = db.preorder_subscribers(con)
+    batches = []
+    if became:
+        for sub in db.preorder_subscribers(con):
+            mine = db.watched_among(con, sub["id"], became)
+            if mine:
+                batches.append((sub["email"], mine))
     con.commit()
     con.close()
-    if became:
+    emailed = 0
+    for addr, mine in batches:
         try:
-            mail.notify_preorders(addrs, became)
-            print(f"discwatch: emailed {len(became)} new pre-orders", flush=True)
+            mail.notify_preorders([addr], mine)
+            emailed += len(mine)
         except Exception as e:
             print(f"discwatch: pre-order mail failed: {e}", file=sys.stderr, flush=True)
+    if emailed:
+        print(f"discwatch: emailed {emailed} tracked pre-order alerts", flush=True)
     print(f"discwatch: stored {len(items)} titles", flush=True)
     return len(items)
 

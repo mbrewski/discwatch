@@ -320,13 +320,38 @@ def set_user_alerts(
     )
 
 
-def preorder_subscribers(con: sqlite3.Connection) -> list[str]:
-    rows = con.execute(
-        """SELECT email FROM users
+def preorder_subscribers(con: sqlite3.Connection):
+    return con.execute(
+        """SELECT id, email FROM users
            WHERE status='approved' AND notify_preorder=1
              AND email IS NOT NULL AND trim(email)!=''"""
     ).fetchall()
-    return [r["email"] for r in rows]
+
+
+def watched_among(
+    con: sqlite3.Connection, user_id: int, items: list[dict]
+) -> list[dict]:
+    """Items this user tracks, matching bluray_id or the same film+format."""
+    rows = con.execute(
+        """SELECT t.bluray_id, t.title, t.fmt FROM watches w
+           JOIN titles t ON t.bluray_id=w.bluray_id
+           WHERE w.user_id=?""",
+        (user_id,),
+    ).fetchall()
+    ids = {r["bluray_id"] for r in rows}
+    keys = {title_watch_key(r["title"], r["fmt"]) for r in rows}
+    keys.discard(("", "4k"))
+    keys.discard(("", "bluray"))
+    out = []
+    for it in items:
+        bid = it.get("bluray_id")
+        if bid and bid in ids:
+            out.append(it)
+            continue
+        k = title_watch_key(it.get("title"), it.get("fmt"))
+        if k[0] and k in keys:
+            out.append(it)
+    return out
 
 
 def create_user(

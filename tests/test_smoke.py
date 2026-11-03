@@ -147,7 +147,8 @@ class TestPreorderDb(TempDb):
         db.create_user(self.con, "quiet", "hash", False)
         db.set_user_alerts(self.con, uid, "dliban2000@yahoo.com", True)
         self.assertEqual(
-            db.preorder_subscribers(self.con), ["dliban2000@yahoo.com"]
+            [r["email"] for r in db.preorder_subscribers(self.con)],
+            ["dliban2000@yahoo.com"],
         )
 
 
@@ -187,7 +188,8 @@ class TestMailDigest(unittest.TestCase):
         self.assertEqual(subj, "Discwatch: 1 new pre-order")
         self.assertIn("Dune 4K (4K, 2026-10-01)", body)
         self.assertIn("https://example/dune", body)
-        self.assertIn("discwatch.mattbrewer.me/inbox", body)
+        self.assertIn("discwatch.mattbrewer.me/", body)
+        self.assertIn("tracked list", body)
 
     def test_notify_skips_empty(self):
         self.assertEqual(mail.notify_preorders([], [_item()]), 0)
@@ -226,6 +228,16 @@ class TestPullReleasesAlert(TempDb):
         db.upsert_release(self.con, _item(source="preorder", preorder=True))
         uid = db.create_user(self.con, "david", "hash", False)
         db.set_user_alerts(self.con, uid, "d@x.com", True)
+        db.upsert_release(
+            self.con,
+            _item(
+                bluray_id="222",
+                slug="New-4K-Blu-ray",
+                title="Brand New",
+                url="https://www.blu-ray.com/movies/New-4K-Blu-ray/222/",
+            ),
+        )
+        db.set_watch(self.con, uid, "222", True)
         self.con.commit()
         self.con.close()
         fresh = _item(
@@ -250,6 +262,72 @@ class TestPullReleasesAlert(TempDb):
         self.assertEqual(addrs, ["d@x.com"])
         self.assertEqual([i["bluray_id"] for i in items], ["222"])
         self.con = db.connect()
+
+    def test_skips_untracked_new_preorders(self):
+        uid = db.create_user(self.con, "david", "hash", False)
+        db.set_user_alerts(self.con, uid, "d@x.com", True)
+        self.con.commit()
+        self.con.close()
+        fresh = _item(source="preorder", preorder=True)
+        with (
+            mock.patch.object(scraper, "gather_releases", return_value=[fresh]),
+            mock.patch.object(mail, "notify_preorders", return_value=1) as notify,
+        ):
+            pull_releases()
+        notify.assert_not_called()
+        self.con = db.connect()
+
+    def test_per_user_tracked_subset(self):
+        db.upsert_release(self.con, _item())
+        db.upsert_release(
+            self.con,
+            _item(
+                bluray_id="222",
+                slug="New-4K-Blu-ray",
+                title="Brand New",
+                url="https://www.blu-ray.com/movies/New-4K-Blu-ray/222/",
+            ),
+        )
+        david = db.create_user(self.con, "david", "hash", False)
+        matt = db.create_user(self.con, "matt", "hash", False)
+        db.set_user_alerts(self.con, david, "d@x.com", True)
+        db.set_user_alerts(self.con, matt, "m@x.com", True)
+        db.set_watch(self.con, david, "111", True)
+        db.set_watch(self.con, matt, "222", True)
+        self.con.commit()
+        self.con.close()
+        a = _item(source="preorder", preorder=True)
+        b = _item(
+            bluray_id="222",
+            slug="New-4K-Blu-ray",
+            title="Brand New",
+            url="https://www.blu-ray.com/movies/New-4K-Blu-ray/222/",
+            source="preorder",
+            preorder=True,
+        )
+        with (
+            mock.patch.object(scraper, "gather_releases", return_value=[a, b]),
+            mock.patch.object(mail, "notify_preorders", return_value=1) as notify,
+        ):
+            pull_releases()
+        calls = {c[0][0][0]: [i["bluray_id"] for i in c[0][1]] for c in notify.call_args_list}
+        self.assertEqual(calls["d@x.com"], ["111"])
+        self.assertEqual(calls["m@x.com"], ["222"])
+        self.con = db.connect()
+
+    def test_watched_among_matches_film_format(self):
+        uid = db.create_user(self.con, "david", "hash", False)
+        db.upsert_release(self.con, _item())
+        db.set_watch(self.con, uid, "111", True)
+        alias = _item(
+            bluray_id="999",
+            title="Dune 4K (2021)",
+            source="preorder",
+            preorder=True,
+        )
+        db.upsert_release(self.con, alias)
+        mine = db.watched_among(self.con, uid, [alias])
+        self.assertEqual([i["bluray_id"] for i in mine], ["999"])
 
 
 class TestFlaskSmoke(TempDb):

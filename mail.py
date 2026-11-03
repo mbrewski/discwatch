@@ -129,7 +129,7 @@ def format_preorder_digest(items: list[dict]) -> tuple[str, str]:
     subject = (
         f"Discwatch: {n} new pre-order" if n == 1 else f"Discwatch: {n} new pre-orders"
     )
-    lines = ["These titles just showed up as pre-orders:", ""]
+    lines = ["These titles on your tracked list just showed up as pre-orders:", ""]
     for it in items:
         title = it.get("title") or "Untitled"
         fmt = "4K" if it.get("fmt") == "4k" else "Blu-ray"
@@ -139,7 +139,7 @@ def format_preorder_digest(items: list[dict]) -> tuple[str, str]:
         if url:
             lines.append(f"  {url}")
     lines.append("")
-    lines.append("https://discwatch.mattbrewer.me/inbox")
+    lines.append("https://discwatch.mattbrewer.me/")
     return subject, "\n".join(lines)
 
 
